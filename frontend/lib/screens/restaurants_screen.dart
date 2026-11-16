@@ -3,8 +3,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/api/api_mode.dart';
 import '../core/theme/app_colors.dart';
 import '../repositories/restaurant_repository.dart';
+import '../services/backend_api_client.dart';
 import '../services/sync_service.dart';
 
 class RestaurantsScreen extends StatefulWidget {
@@ -66,9 +68,11 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
   }
 
   void _showAddRestaurantDialog() {
+    final codeController = TextEditingController();
     final nameController = TextEditingController();
     final addressController = TextEditingController();
     final phoneController = TextEditingController();
+    final timezoneController = TextEditingController(text: 'Asia/Kolkata');
 
     showDialog(
       context: context,
@@ -77,6 +81,14 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            TextField(
+              controller: codeController,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                labelText: 'Branch Code',
+                hintText: 'e.g. MG-ROAD',
+              ),
+            ),
             TextField(
               controller: nameController,
               decoration: const InputDecoration(
@@ -91,6 +103,13 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
               controller: phoneController,
               decoration: const InputDecoration(labelText: 'Phone'),
             ),
+            TextField(
+              controller: timezoneController,
+              decoration: const InputDecoration(
+                labelText: 'Timezone',
+                hintText: 'Asia/Kolkata',
+              ),
+            ),
           ],
         ),
         actions: [
@@ -100,10 +119,16 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
           ),
           ElevatedButton(
             onPressed: () async {
-              if (nameController.text.trim().isNotEmpty) {
+              final requiresBranchDetails = await ApiMode.useBackendApi();
+              if (nameController.text.trim().isNotEmpty &&
+                  (!requiresBranchDetails ||
+                      (codeController.text.trim().isNotEmpty &&
+                          timezoneController.text.trim().isNotEmpty))) {
                 try {
                   await _repo.createRestaurant(
+                    code: codeController.text.trim().toUpperCase(),
                     name: nameController.text.trim(),
+                    timezone: timezoneController.text.trim(),
                     address: addressController.text.trim(),
                     phone: phoneController.text.trim(),
                   );
@@ -127,12 +152,18 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
   }
 
   void _showEditRestaurantDialog(Map<String, dynamic> restaurant) {
+    final codeController = TextEditingController(
+      text: restaurant['code']?.toString() ?? '',
+    );
     final nameController =
         TextEditingController(text: restaurant['name']?.toString() ?? '');
     final addressController =
         TextEditingController(text: restaurant['address']?.toString() ?? '');
     final phoneController =
         TextEditingController(text: restaurant['phone']?.toString() ?? '');
+    final timezoneController = TextEditingController(
+      text: restaurant['timezone']?.toString() ?? 'Asia/Kolkata',
+    );
 
     showDialog(
       context: context,
@@ -141,6 +172,11 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            TextField(
+              controller: codeController,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(labelText: 'Branch Code'),
+            ),
             TextField(
               controller: nameController,
               decoration: const InputDecoration(
@@ -155,6 +191,13 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
               controller: phoneController,
               decoration: const InputDecoration(labelText: 'Phone'),
             ),
+            TextField(
+              controller: timezoneController,
+              decoration: const InputDecoration(
+                labelText: 'Timezone',
+                hintText: 'Asia/Kolkata',
+              ),
+            ),
           ],
         ),
         actions: [
@@ -164,11 +207,17 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
           ),
           ElevatedButton(
             onPressed: () async {
-              if (nameController.text.trim().isNotEmpty) {
+              final requiresBranchDetails = await ApiMode.useBackendApi();
+              if (nameController.text.trim().isNotEmpty &&
+                  (!requiresBranchDetails ||
+                      (codeController.text.trim().isNotEmpty &&
+                          timezoneController.text.trim().isNotEmpty))) {
                 try {
                   await _repo.updateRestaurant(
                     id: (restaurant['id'] as num).toInt(),
+                    code: codeController.text.trim().toUpperCase(),
                     name: nameController.text.trim(),
+                    timezone: timezoneController.text.trim(),
                     address: addressController.text.trim(),
                     phone: phoneController.text.trim(),
                   );
@@ -187,6 +236,125 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
             child: const Text('Save'),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _showBranchHours(Map<String, dynamic> branch) async {
+    final id = (branch['id'] as num).toInt();
+    const weekdays = [
+      'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
+      'FRIDAY', 'SATURDAY', 'SUNDAY',
+    ];
+    final schedule = <Map<String, dynamic>>[];
+    try {
+      final raw = await const BackendApiClient().getJson(
+        '/api/v1/branches/$id/hours',
+      );
+      if (raw is List) {
+        for (final item in raw.whereType<Map>()) {
+          final row = Map<String, dynamic>.from(item);
+          schedule.add({
+            'weekday': row['weekday']?.toString().toUpperCase(),
+            'openTime': row['openTime']?.toString() ?? '09:00:00',
+            'closeTime': row['closeTime']?.toString() ?? '22:00:00',
+            'closed': row['closed'] == true,
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not load branch hours: $e')),
+        );
+      }
+      return;
+    }
+    for (final day in weekdays) {
+      if (!schedule.any((row) => row['weekday'] == day)) {
+        schedule.add({
+          'weekday': day,
+          'openTime': '09:00:00',
+          'closeTime': '22:00:00',
+          'closed': true,
+        });
+      }
+    }
+    schedule.sort((a, b) =>
+        weekdays.indexOf(a['weekday']).compareTo(weekdays.indexOf(b['weekday'])));
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('${branch['name']} opening hours'),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: schedule.map((row) {
+                  final day = row['weekday'] as String;
+                  return Row(
+                    children: [
+                      SizedBox(width: 105, child: Text(day.substring(0, 3))),
+                      Checkbox(
+                        value: row['closed'] as bool,
+                        onChanged: (value) => setDialogState(() {
+                          row['closed'] = value ?? false;
+                        }),
+                      ),
+                      const Text('Closed'),
+                      if (!(row['closed'] as bool)) ...[
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextFormField(
+                            initialValue: (row['openTime'] as String).substring(0, 5),
+                            decoration: const InputDecoration(labelText: 'Open', hintText: '09:00'),
+                            onChanged: (value) => row['openTime'] = '$value:00',
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextFormField(
+                            initialValue: (row['closeTime'] as String).substring(0, 5),
+                            decoration: const InputDecoration(labelText: 'Close', hintText: '22:00'),
+                            onChanged: (value) => row['closeTime'] = '$value:00',
+                          ),
+                        ),
+                      ],
+                    ],
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                try {
+                  await const BackendApiClient().putJsonList(
+                    '/api/v1/branches/$id/hours',
+                    schedule,
+                  );
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Could not save branch hours: $e')),
+                    );
+                  }
+                  return;
+                }
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+              },
+              child: const Text('Save hours'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -302,6 +470,11 @@ class _RestaurantsScreenState extends State<RestaurantsScreen> {
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            IconButton(
+                              tooltip: 'Opening hours',
+                              icon: const Icon(Icons.schedule, color: Colors.indigo),
+                              onPressed: () => _showBranchHours(restaurant),
+                            ),
                             IconButton(
                               icon: const Icon(
                                 Icons.edit,

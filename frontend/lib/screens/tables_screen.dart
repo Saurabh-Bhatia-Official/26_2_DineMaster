@@ -3,6 +3,7 @@ import 'package:dine_master/core/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../repositories/table_repository.dart';
 import '../repositories/user_repository.dart';
 import '../models/table_model.dart';
@@ -107,6 +108,42 @@ class _TablesScreenState extends State<TablesScreen> {
     }
   }
 
+  Future<void> _cancelReservation(dynamic reservationId) async {
+    if (reservationId == null) return;
+    if (await ApiMode.useBackendApi()) {
+      await const BackendApiClient().patchJson(
+        '/api/v1/reservations/$reservationId/status?value=Cancelled',
+        {},
+      );
+    } else {
+      final db = await DatabaseHelper.instance.database;
+      await db.update(
+        'bookings',
+        {'status': 'Cancelled'},
+        where: 'id = ?',
+        whereArgs: [reservationId],
+      );
+    }
+    await _loadTables();
+  }
+
+  Future<void> _deleteReservation(dynamic reservationId) async {
+    if (reservationId == null) return;
+    if (await ApiMode.useBackendApi()) {
+      await const BackendApiClient().delete(
+        '/api/v1/reservations/$reservationId',
+      );
+    } else {
+      final db = await DatabaseHelper.instance.database;
+      await db.delete(
+        'bookings',
+        where: 'id = ?',
+        whereArgs: [reservationId],
+      );
+    }
+    await _loadTables();
+  }
+
   Future<void> _loadTables() async {
     setState(() => _isLoading = true);
     try {
@@ -116,7 +153,7 @@ class _TablesScreenState extends State<TablesScreen> {
         const api = BackendApiClient();
 
         final response = await api.getJson(
-          '/api/bookings?restaurantId=$restaurantId',
+          '/api/v1/reservations?restaurantId=$restaurantId',
         );
 
         final rawBookings = response is List
@@ -1392,12 +1429,24 @@ class _TablesScreenState extends State<TablesScreen> {
   }
 
   // Reservation Dialog
-  void _showReservationDialog(TableModel table, [DateTime? initialDate]) {
+  void _showReservationDialog(
+    TableModel table, [
+    DateTime? initialDate,
+    Map<String, dynamic>? existingBooking,
+  ]) {
     final messenger = ScaffoldMessenger.maybeOf(context);
-    final nameCtrl = TextEditingController();
-    final phoneCtrl = TextEditingController();
-    final guestsCtrl = TextEditingController(text: '${table.capacity}');
-    final notesCtrl = TextEditingController();
+    final nameCtrl = TextEditingController(
+      text: existingBooking?['customer_name']?.toString() ?? '',
+    );
+    final phoneCtrl = TextEditingController(
+      text: existingBooking?['customer_phone']?.toString() ?? '',
+    );
+    final guestsCtrl = TextEditingController(
+      text: existingBooking?['guest_count']?.toString() ?? '${table.capacity}',
+    );
+    final notesCtrl = TextEditingController(
+      text: existingBooking?['notes']?.toString() ?? '',
+    );
     DateTime date = initialDate ?? DateTime.now();
     TimeOfDay time = initialDate != null
         ? TimeOfDay.fromDateTime(initialDate)
@@ -1417,7 +1466,9 @@ class _TablesScreenState extends State<TablesScreen> {
                 color: AppColors.primary,
               ),
               const SizedBox(width: 8),
-              Text('Reserve ${table.displayName}'),
+              Text(existingBooking == null
+                  ? 'Reserve ${table.displayName}'
+                  : 'Edit reservation for ${table.displayName}'),
             ],
           ),
           content: SingleChildScrollView(
@@ -1530,7 +1581,7 @@ class _TablesScreenState extends State<TablesScreen> {
                   if (await ApiMode.useBackendApi()) {
                     const api = BackendApiClient();
                     final response = await api.getJson(
-                      '/api/bookings?restaurantId=$restaurantId',
+                      '/api/v1/reservations?restaurantId=$restaurantId',
                     );
 
                     final bookings = response is List
@@ -1546,6 +1597,11 @@ class _TablesScreenState extends State<TablesScreen> {
                           .toString()
                           .toLowerCase();
                       if (status != 'confirmed') continue;
+                      if (existingBooking != null &&
+                          item['id']?.toString() ==
+                              existingBooking['id']?.toString()) {
+                        continue;
+                      }
 
                       final bookedTable = item['table'];
                       final bookedTableId =
@@ -1587,7 +1643,7 @@ class _TablesScreenState extends State<TablesScreen> {
                     final bookingTime =
                         "${DateFormat("yyyy-MM-dd'T'HH:mm:ss").format(bookingStart)}$offsetText";
 
-                    await api.postJson('/api/bookings', {
+                    final payload = <String, dynamic>{
                       'tableId': table.id,
                       'customerName': nameCtrl.text.trim(),
                       'customerPhone': phoneCtrl.text.trim().isNotEmpty
@@ -1602,7 +1658,15 @@ class _TablesScreenState extends State<TablesScreen> {
                           ? notesCtrl.text.trim()
                           : null,
                       'restaurantId': restaurantId,
-                    });
+                    };
+                    if (existingBooking == null) {
+                      await api.postJson('/api/v1/reservations', payload);
+                    } else {
+                      await api.putJson(
+                        '/api/v1/reservations/${existingBooking['id']}',
+                        payload,
+                      );
+                    }
                   } else {
                     final db = await DatabaseHelper.instance.database;
 
@@ -1614,6 +1678,11 @@ class _TablesScreenState extends State<TablesScreen> {
 
                     bool hasConflict = false;
                     for (final eb in existingBookings) {
+                      if (existingBooking != null &&
+                          eb['id']?.toString() ==
+                              existingBooking['id']?.toString()) {
+                        continue;
+                      }
                       final ebStart = DateTime.tryParse(
                         eb['booking_time'] as String? ?? '',
                       );
@@ -1639,7 +1708,7 @@ class _TablesScreenState extends State<TablesScreen> {
                       return;
                     }
 
-                    await db.insert('bookings', {
+                    final localBooking = <String, dynamic>{
                       'table_id': table.id,
                       'customer_name': nameCtrl.text.trim(),
                       'customer_phone': phoneCtrl.text.trim().isNotEmpty
@@ -1654,7 +1723,17 @@ class _TablesScreenState extends State<TablesScreen> {
                           ? notesCtrl.text.trim()
                           : null,
                       'restaurant_id': restaurantId,
-                    });
+                    };
+                    if (existingBooking == null) {
+                      await db.insert('bookings', localBooking);
+                    } else {
+                      await db.update(
+                        'bookings',
+                        localBooking,
+                        where: 'id = ?',
+                        whereArgs: [existingBooking['id']],
+                      );
+                    }
                   }
 
                   final now = DateTime.now();
@@ -1670,9 +1749,9 @@ class _TablesScreenState extends State<TablesScreen> {
                     await _loadTables();
                     messenger?.showSnackBar(
                       SnackBar(
-                        content: Text(
-                          'Reservation confirmed for ${table.displayName}',
-                        ),
+                        content: Text(existingBooking == null
+                            ? 'Reservation confirmed for ${table.displayName}'
+                            : 'Reservation updated for ${table.displayName}'),
                         backgroundColor: const Color(0xFF2E7D32),
                       ),
                     );
@@ -1958,6 +2037,162 @@ class _TablesScreenState extends State<TablesScreen> {
     _loadTables();
   }
 
+  Future<void> _createQrSession(TableModel table) async {
+    if (!await ApiMode.useBackendApi()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('QR sessions require backend API mode.')),
+      );
+      return;
+    }
+    try {
+      final response = await const BackendApiClient().postJson(
+        '/api/v1/tables/${table.id}/qr-session',
+        {},
+      );
+      if (response is! Map || response['menuUrl'] == null) {
+        throw const FormatException('Backend did not return a menu URL');
+      }
+      final menuUrl = response['menuUrl'].toString();
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('${table.displayName} QR code'),
+          content: SizedBox(
+            width: 300,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                QrImageView(data: menuUrl, size: 220),
+                const SizedBox(height: 8),
+                SelectableText(menuUrl, textAlign: TextAlign.center),
+                if (response['expiresAt'] != null)
+                  Text('Expires ${response['expiresAt']}'),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close')),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not create table QR: $e')),
+      );
+    }
+  }
+
+  Future<void> _manageFloors() async {
+    if (!await ApiMode.useBackendApi()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Floor management requires backend API mode.')),
+      );
+      return;
+    }
+    final branchId = DatabaseHelper.currentRestaurantId ?? 1;
+    final nameController = TextEditingController();
+    var floors = <Map<String, dynamic>>[];
+    Future<void> reload() async {
+      final result = await const BackendApiClient().getJson(
+        '/api/v1/floors?branchId=$branchId&includeInactive=true',
+      );
+      final items = result is Map ? result['items'] : null;
+      floors = items is List
+          ? items.whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList()
+          : <Map<String, dynamic>>[];
+    }
+    try {
+      await reload();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not load floors: $e')),
+      );
+      return;
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Manage Floors'),
+          content: SizedBox(
+            width: 480,
+            height: 380,
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: TextField(controller: nameController, decoration: const InputDecoration(labelText: 'New floor name'))),
+                    IconButton(
+                      icon: const Icon(Icons.add_circle, color: AppColors.primary),
+                      onPressed: () async {
+                        final name = nameController.text.trim();
+                        if (name.isEmpty) return;
+                        try {
+                          await const BackendApiClient().postJson(
+                            '/api/v1/floors?branchId=$branchId',
+                            {'name': name, 'description': null, 'displayOrder': floors.length, 'active': true},
+                          );
+                          nameController.clear();
+                          await reload();
+                          setDialogState(() {});
+                        } catch (e) {
+                          if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Could not add floor: $e')),
+                          );
+                        }
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: floors.length,
+                    itemBuilder: (context, index) {
+                      final floor = floors[index];
+                      final id = (floor['id'] as num).toInt();
+                      final active = floor['active'] == true;
+                      return ListTile(
+                        title: Text(floor['name']?.toString() ?? ''),
+                        subtitle: Text(active ? 'Active' : 'Inactive'),
+                        trailing: IconButton(
+                          tooltip: active ? 'Deactivate floor' : 'Activate floor',
+                          icon: Icon(active ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                          onPressed: () async {
+                            try {
+                              await const BackendApiClient().putJson(
+                                '/api/v1/floors/$id?branchId=$branchId',
+                                {
+                                  'name': floor['name'],
+                                  'description': floor['description'],
+                                  'displayOrder': floor['displayOrder'] ?? index,
+                                  'active': !active,
+                                },
+                              );
+                              await reload();
+                              setDialogState(() {});
+                            } catch (e) {
+                              if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Could not update floor: $e')),
+                              );
+                            }
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Done'))],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
@@ -1966,6 +2201,11 @@ class _TablesScreenState extends State<TablesScreen> {
         appBar: AppBar(
           title: const Text('Restaurant Table Management'),
           actions: [
+            IconButton(
+              tooltip: 'Manage floors',
+              icon: const Icon(Icons.layers_outlined),
+              onPressed: _manageFloors,
+            ),
             IconButton(
               icon: const Icon(Icons.refresh),
               // tooltip disabled,
@@ -2742,6 +2982,11 @@ class _TablesScreenState extends State<TablesScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
+                IconButton(
+                  tooltip: 'Create QR ordering session',
+                  icon: const Icon(Icons.qr_code_2, size: 20),
+                  onPressed: () => _createQrSession(table),
+                ),
                 // Configure / Settings
                 IconButton(
                   icon: const Icon(
@@ -4006,14 +4251,7 @@ class _TablesScreenState extends State<TablesScreen> {
                     ),
                   );
                   if (confirm == true) {
-                    final db = await DatabaseHelper.instance.database;
-                    await db.update(
-                      'bookings',
-                      {'status': 'Cancelled'},
-                      where: 'id = ?',
-                      whereArgs: [booking['id']],
-                    );
-                    await _loadTables();
+                    await _cancelReservation(booking['id']);
                   }
                 },
               ),
@@ -4121,6 +4359,24 @@ class _TablesScreenState extends State<TablesScreen> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      IconButton(
+                        tooltip: 'Edit reservation',
+                        icon: const Icon(Icons.edit_outlined, color: Colors.blue),
+                        onPressed: () {
+                          final entry = _enrichedTables.where((item) {
+                            final table = item['table'] as TableModel;
+                            return table.id?.toString() ==
+                                b['table_id']?.toString();
+                          });
+                          if (entry.isNotEmpty) {
+                            _showReservationDialog(
+                              entry.first['table'] as TableModel,
+                              bTime,
+                              b,
+                            );
+                          }
+                        },
+                      ),
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primary,
@@ -4147,14 +4403,35 @@ class _TablesScreenState extends State<TablesScreen> {
                           color: Colors.red,
                         ),
                         onPressed: () async {
-                          final db = await DatabaseHelper.instance.database;
-                          await db.update(
-                            'bookings',
-                            {'status': 'Cancelled'},
-                            where: 'id = ?',
-                            whereArgs: [b['id']],
+                          await _cancelReservation(b['id']);
+                        },
+                      ),
+                      IconButton(
+                        tooltip: 'Delete reservation',
+                        icon: const Icon(Icons.delete_outline, color: Colors.red),
+                        onPressed: () async {
+                          final confirmed = await showDialog<bool>(
+                            context: context,
+                            builder: (dialogContext) => AlertDialog(
+                              title: const Text('Delete reservation?'),
+                              content: const Text(
+                                'This permanently removes the reservation.',
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(dialogContext, false),
+                                  child: const Text('Keep'),
+                                ),
+                                TextButton(
+                                  onPressed: () => Navigator.pop(dialogContext, true),
+                                  child: const Text('Delete'),
+                                ),
+                              ],
+                            ),
                           );
-                          await _loadTables();
+                          if (confirmed == true) {
+                            await _deleteReservation(b['id']);
+                          }
                         },
                       ),
                     ],

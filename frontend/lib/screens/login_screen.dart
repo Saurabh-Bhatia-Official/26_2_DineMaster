@@ -19,11 +19,20 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  final _tenantCodeController = TextEditingController();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
   String _selectedRole = 'Owner';
   bool _rememberMe = false;
+
+  @override
+  void dispose() {
+    _tenantCodeController.dispose();
+    _usernameController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
 
   Future<bool> _changeInitialPassword(String currentPassword) async {
     final controller = TextEditingController();
@@ -173,6 +182,39 @@ class _LoginScreenState extends State<LoginScreen> {
                           style: TextStyle(fontSize: 14, color: Colors.white70),
                         ).animate().fadeIn(delay: 600.ms),
                         const SizedBox(height: 40),
+
+                        // Tenant Code Field
+                        TextField(
+                          controller: _tenantCodeController,
+                          textCapitalization: TextCapitalization.characters,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: InputDecoration(
+                            labelText: 'Tenant Code',
+                            hintText: 'e.g. SPICEROUTE',
+                            hintStyle: const TextStyle(color: Colors.white54),
+                            labelStyle: const TextStyle(color: Colors.white70),
+                            prefixIcon: const Icon(
+                              Icons.business,
+                              color: Colors.white70,
+                            ),
+                            filled: true,
+                            fillColor: Colors.white.withAlpha(40),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(
+                                color: Colors.white.withAlpha(70),
+                              ),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(
+                                color: Colors.white,
+                                width: 1.5,
+                              ),
+                            ),
+                          ),
+                        ).animate().fadeIn(delay: 700.ms).slideX(begin: -0.1),
+                        const SizedBox(height: 20),
 
                         // Username Field
                         TextField(
@@ -342,6 +384,8 @@ class _LoginScreenState extends State<LoginScreen> {
                               onPressed: () async {
                                 final username = _usernameController.text
                                     .trim();
+                                final tenantCode = _tenantCodeController.text
+                                    .trim();
                                 final password = _passwordController.text
                                     .trim();
 
@@ -355,7 +399,18 @@ class _LoginScreenState extends State<LoginScreen> {
                                     kIsWeb ||
                                     (prefs.getBool('use_backend_api') ?? true);
                                 if (useBackendApi) {
+                                  if (tenantCode.isEmpty) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Enter your tenant code to sign in.',
+                                        ),
+                                      ),
+                                    );
+                                    return;
+                                  }
                                   final user = await UserRepository().login(
+                                    tenantCode,
                                     username,
                                     password,
                                   );

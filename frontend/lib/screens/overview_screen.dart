@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dine_master/core/theme/app_colors.dart';
+import '../core/api/api_mode.dart';
 import '../core/database/database_helper.dart';
 import '../repositories/table_repository.dart';
 import '../models/table_model.dart';
@@ -54,41 +54,26 @@ class _OverviewScreenState extends State<OverviewScreen> {
       final prefs = await SharedPreferences.getInstance();
       final username = prefs.getString('username') ?? 'User';
 
-      if (kIsWeb) {
+      if (await ApiMode.useBackendApi()) {
         final restaurantId = DatabaseHelper.currentRestaurantId ?? 1;
 
         final results = await Future.wait([
           BackendApiClient().getJson(
-            '/api/v1/inventory?restaurantId=$restaurantId',
+            '/api/v1/dashboard/summary?branchId=$restaurantId',
           ),
           TableRepository().getTables(),
         ]);
 
-        final inventoryResponse = results[0];
-        final List<dynamic> items = inventoryResponse is List
-            ? inventoryResponse
-            : (inventoryResponse is Map
-                  ? (inventoryResponse['content'] as List<dynamic>? ?? [])
-                  : <dynamic>[]);
-
-        final lowStock = items.where((raw) {
-          if (raw is! Map) return false;
-
-          final stock =
-              num.tryParse(
-                (raw['currentStock'] ?? raw['current_stock'] ?? 0).toString(),
-              ) ??
-              0;
-
-          final threshold =
-              num.tryParse(
-                (raw['lowStockThreshold'] ?? raw['low_stock_threshold'] ?? 0)
-                    .toString(),
-              ) ??
-              0;
-
-          return stock > 0 && stock <= threshold;
-        }).length;
+        final summary = results[0];
+        final metrics = summary is Map && summary['metrics'] is Map
+            ? Map<String, dynamic>.from(summary['metrics'] as Map)
+            : <String, dynamic>{};
+        final revenue = metrics['revenue'] is Map
+            ? (metrics['revenue']['value'] as num?)?.toDouble()
+            : null;
+        final lowStock = metrics['lowStockAlerts'] is Map
+            ? ((metrics['lowStockAlerts']['value'] as num?)?.toInt() ?? 0)
+            : 0;
 
         final tables = results[1] as List<TableModel>;
         final totalTables = tables.where((table) => table.isActive).length;
@@ -99,6 +84,7 @@ class _OverviewScreenState extends State<OverviewScreen> {
         if (mounted) {
           setState(() {
             _username = username;
+            _totalSales = revenue ?? 0;
             _lowStockCount = lowStock;
             _occupiedTablesCount = occupiedTables;
             _totalTablesCount = totalTables;

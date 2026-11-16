@@ -11,6 +11,7 @@ import '../models/product_model.dart';
 import '../models/order_model.dart';
 import '../models/table_model.dart';
 import '../repositories/product_repository.dart';
+import '../repositories/table_repository.dart';
 import '../services/sync_service.dart';
 import 'waiter/waiter_models.dart';
 import 'waiter/components/waiter_cart_panel.dart';
@@ -113,11 +114,17 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
       final restaurantId = DatabaseHelper.currentRestaurantId ?? 1;
 
       // 1. Fetch tables and active orders
-      final List<Map<String, dynamic>> tablesResult = await db.query(
-        'tables',
-        where: 'restaurant_id = ?',
-        whereArgs: [restaurantId],
-      );
+      final List<Map<String, dynamic>> tablesResult;
+      if (await ApiMode.useBackendApi()) {
+        final tables = await TableRepository().getTables();
+        tablesResult = tables.map((table) => table.toMap()).toList();
+      } else {
+        tablesResult = await db.query(
+          'tables',
+          where: 'restaurant_id = ?',
+          whereArgs: [restaurantId],
+        );
+      }
 
       final List<WaiterTableInfo> enrichedTables = [];
       final Set<String> sections = {'All'};

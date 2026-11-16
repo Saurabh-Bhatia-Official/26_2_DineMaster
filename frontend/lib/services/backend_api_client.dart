@@ -1,6 +1,7 @@
 ﻿import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'auth_token_storage.dart';
 
@@ -51,7 +52,44 @@ class BackendApiClient {
     return _requestJson('POST', path, body: body);
   }
 
+  Future<dynamic> postMultipartJson(
+    String path,
+    Map<String, dynamic> fields, {
+    required String fileField,
+    required List<int> fileBytes,
+    required String fileName,
+  }) async {
+    final token = await AuthTokenStorage.readAccessToken();
+    final request = http.MultipartRequest('POST', await _uri(path))
+      ..headers['Accept'] = 'application/json';
+    if (token != null && token.isNotEmpty) {
+      request.headers['Authorization'] = 'Bearer $token';
+    }
+    request.files.add(http.MultipartFile.fromString(
+      'product',
+      jsonEncode(fields),
+      contentType: MediaType('application', 'json'),
+    ));
+    request.files.add(http.MultipartFile.fromBytes(
+      fileField,
+      fileBytes,
+      filename: fileName,
+    ));
+
+    final client = http.Client();
+    try {
+      final streamed = await client.send(request).timeout(const Duration(seconds: 30));
+      return _decodeResponse(await http.Response.fromStream(streamed));
+    } finally {
+      client.close();
+    }
+  }
+
   Future<dynamic> putJson(String path, Map<String, dynamic> body) async {
+    return _requestJson('PUT', path, body: body);
+  }
+
+  Future<dynamic> putJsonList(String path, List<dynamic> body) async {
     return _requestJson('PUT', path, body: body);
   }
 
@@ -66,7 +104,7 @@ class BackendApiClient {
   Future<dynamic> _requestJson(
     String method,
     String path, {
-    Map<String, dynamic>? body,
+    dynamic body,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     var token = await AuthTokenStorage.readAccessToken();
@@ -103,7 +141,7 @@ class BackendApiClient {
   Future<http.Response> _send(
     String method,
     String path,
-    Map<String, dynamic>? body,
+    dynamic body,
     String? token,
   ) async {
     final headers = <String, String>{

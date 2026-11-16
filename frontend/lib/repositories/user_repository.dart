@@ -10,10 +10,15 @@ class UserRepository {
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
   final BackendApiClient _apiClient = const BackendApiClient();
 
-  Future<UserModel?> login(String username, String password) async {
+  Future<UserModel?> login(
+    String tenantCode,
+    String username,
+    String password,
+  ) async {
     if (await _useBackendApi()) {
       try {
         final response = await _apiClient.postJson('/api/v1/auth/login', {
+          'tenantCode': tenantCode,
           'username': username,
           'password': password,
         });
@@ -116,6 +121,43 @@ class UserRepository {
     }
     final db = await _dbHelper.database;
     return db.delete('users', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> reactivateUser(int id, {String? reason}) async {
+    if (!await _useBackendApi()) {
+      final db = await _dbHelper.database;
+      await db.update('users', {'is_active': 1}, where: 'id = ?', whereArgs: [id]);
+      return;
+    }
+    await _apiClient.postJson('/api/v1/users/$id/reactivate', {
+      if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
+    });
+  }
+
+  Future<void> resetUserPassword(
+    int id,
+    String temporaryPassword, {
+    String? reason,
+  }) async {
+    if (!await _useBackendApi()) {
+      throw UnsupportedError('Password reset requires the backend API');
+    }
+    await _apiClient.postJson('/api/v1/users/$id/reset-password', {
+      'temporaryPassword': temporaryPassword,
+      if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
+    });
+  }
+
+  Future<dynamic> getUserSessions(int id) async {
+    return _apiClient.getJson('/api/v1/users/$id/sessions');
+  }
+
+  Future<void> revokeUserSessions(int id) async {
+    await _apiClient.postJson('/api/v1/users/$id/sessions/revoke', {});
+  }
+
+  Future<dynamic> getUserAudit(int id) async {
+    return _apiClient.getJson('/api/v1/users/$id/audit');
   }
 
   Future<void> changePassword(

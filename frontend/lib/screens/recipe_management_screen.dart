@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import '../core/platform/io.dart';
 import '../core/platform/video_file_controller.dart';
 import 'package:flutter/material.dart';
@@ -7,6 +6,7 @@ import 'package:file_picker/file_picker.dart' as fp;
 import 'package:video_player/video_player.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../core/database/database_helper.dart';
+import '../core/api/api_mode.dart';
 import '../services/backend_api_client.dart';
 
 class RecipeManagementScreen extends StatefulWidget {
@@ -52,7 +52,7 @@ class _RecipeManagementScreenState extends State<RecipeManagementScreen> {
     try {
       final productId = widget.product['id'];
 
-      if (kIsWeb) {
+      if (await ApiMode.useBackendApi()) {
         const api = BackendApiClient();
         final restaurantId = DatabaseHelper.currentRestaurantId ?? 1;
 
@@ -246,8 +246,7 @@ class _RecipeManagementScreenState extends State<RecipeManagementScreen> {
   Future<void> _saveRecipe() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final db = await DatabaseHelper.instance.database;
-    final productId = widget.product['id'] as int;
+    final productId = (widget.product['id'] as num).toInt();
 
     // Collect all ingredient names to sync back to the main products.ingredients field
     final ingredientNames = _localRecipe
@@ -266,6 +265,68 @@ class _RecipeManagementScreenState extends State<RecipeManagementScreen> {
     final prepTime = int.tryParse(_prepTimeController.text.trim());
     final cookTime = int.tryParse(_cookTimeController.text.trim());
     final servings = int.tryParse(_servingsController.text.trim());
+
+    if (await ApiMode.useBackendApi()) {
+      try {
+        const api = BackendApiClient();
+        final product = widget.product;
+        await api.putJson('/api/v1/products/$productId', {
+          'name': product['name'],
+          'description': product['description'],
+          'ingredients': combinedIngredients,
+          'price': product['price'],
+          'category': product['category'],
+          'is_veg': product['is_veg'] ?? product['veg'] ?? 1,
+          'imagePath': product['imagePath'] ?? product['image_path'],
+          'is_available': product['is_available'] == true ||
+              product['is_available'] == 1 ||
+              product['available'] == true,
+          'gstPercentage': product['gstPercentage'] ??
+              product['gst_percentage'] ?? 5,
+          'dietaryPreferences': product['dietaryPreferences'] ??
+              product['dietary_preferences'] ?? '',
+          'tastePreferences': product['tastePreferences'] ??
+              product['taste_preferences'] ?? '',
+          'attributes': product['attributes'] ?? '',
+          'customDietaryNotes': product['customDietaryNotes'] ??
+              product['custom_dietary_notes'],
+          'recipeSteps': _steps.join('\n'),
+          'prepTime': prepTime,
+          'cookTime': cookTime,
+          'servings': servings,
+          'difficulty': _difficulty,
+          'videoPath': _videoPath,
+        });
+
+        final current = await api.getJson(
+          '/api/v1/recipes?productId=$productId',
+        );
+        final existing = current is List ? current : <dynamic>[];
+        for (final row in existing) {
+          if (row is Map && row['id'] is num) {
+            await api.delete('/api/v1/recipes/${row['id']}');
+          }
+        }
+        for (final item in _localRecipe) {
+          await api.postJson('/api/v1/recipes', {
+            'productId': productId,
+            'ingredientId': item['ingredient_id'],
+            'quantityUsed': item['quantity_used'],
+          });
+        }
+
+        if (mounted) Navigator.pop(context, true);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not save recipe: $e')),
+          );
+        }
+      }
+      return;
+    }
+
+    final db = await DatabaseHelper.instance.database;
 
     // 1. Update product detail columns
     await db.update(

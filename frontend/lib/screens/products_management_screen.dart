@@ -2,7 +2,9 @@
 import 'package:dine_master/core/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:file_picker/file_picker.dart' as fp;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../core/api/api_mode.dart';
 import '../core/database/database_helper.dart';
 import '../services/backend_api_client.dart';
 import '../models/product_model.dart';
@@ -20,6 +22,7 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
   List<ProductModel> _products = [];
   bool _isLoading = true;
   List<String> _categories = ['All'];
+  List<Map<String, dynamic>> _categoryRecords = [];
   String _selectedCategory = 'All';
   String _searchQuery = '';
 
@@ -34,7 +37,7 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
     try {
       List<Map<String, dynamic>> cats;
 
-      if (kIsWeb) {
+      if (await ApiMode.useBackendApi()) {
         final response =
             await const BackendApiClient().getJson('/api/categories');
         if (response is! List) {
@@ -51,6 +54,7 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
 
       if (!mounted) return;
       setState(() {
+        _categoryRecords = cats;
         final dbCats = cats.map((c) => c['name'].toString()).toList();
         _categories = dbCats.isEmpty
             ? ['All', 'Starters', 'Main Course', 'Breads', 'Beverages', 'Desserts']
@@ -65,8 +69,10 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
       List<Map<String, dynamic>> productMaps;
 
       if (kIsWeb) {
-        final response =
-            await const BackendApiClient().getJson('/api/products/all');
+        final selectedRestaurant = DatabaseHelper.currentRestaurantId ?? 1;
+        final response = await const BackendApiClient().getJson(
+          '/api/v1/products/all?restaurantId=$selectedRestaurant',
+        );
 
         if (response is! List) {
           throw const FormatException('Unexpected products response');
@@ -80,9 +86,6 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
                   (item['restaurant'] is Map
                       ? item['restaurant']['id']
                       : null);
-              final selectedRestaurant =
-                  DatabaseHelper.currentRestaurantId ?? 1;
-
               return restaurantId == null ||
                   restaurantId.toString() == selectedRestaurant.toString();
             })
@@ -185,6 +188,7 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
     int productType = existingProduct?.isVeg ?? 1; // 1=Veg, 0=Non-Veg, 2=Egg, 3=Jain
     bool isAvailable = existingProduct?.isAvailable ?? true;
     double gstPercentage = existingProduct?.gstPercentage ?? 5.0;
+    fp.PlatformFile? selectedImage;
 
     // Preferences & Attributes Sets
     final Set<String> dietaryPreferences = Set.from(existingProduct?.dietaryPreferences ?? []);
@@ -354,6 +358,23 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
                                   hintText: 'Brief description of ingredients, style, or preparation...',
                                   border: OutlineInputBorder(),
                                 ),
+                              ),
+                              const SizedBox(height: 12),
+                              if (!isEditing) OutlinedButton.icon(
+                                onPressed: () async {
+                                  final result = await fp.FilePicker.pickFiles(
+                                    type: fp.FileType.image,
+                                    withData: true,
+                                  );
+                                  final file = result != null && result.files.isNotEmpty
+                                      ? result.files.first
+                                      : null;
+                                  if (file != null && file.bytes != null) {
+                                    setDlgState(() => selectedImage = file);
+                                  }
+                                },
+                                icon: const Icon(Icons.add_photo_alternate_outlined),
+                                label: Text(selectedImage?.name ?? 'Choose menu image'),
                               ),
                               const SizedBox(height: 12),
                               Row(
@@ -852,6 +873,8 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
                               'category': category,
                               'is_veg': productType,
                               'is_available': isAvailable,
+                              // Keep the stored image when editing other fields.
+                              'imagePath': existingProduct?.imagePath,
                               'restaurantId': DatabaseHelper.currentRestaurantId,
                               'recipeSteps': localSteps.join('\n'),
                               'prepTime': int.tryParse(prepTimeController.text.trim()) ?? 5,
@@ -870,7 +893,17 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
                                 apiData,
                               );
                             } else {
-                              await api.postJson('/api/products', apiData);
+                              if (selectedImage == null) {
+                                await api.postJson('/api/products', apiData);
+                              } else {
+                                await api.postMultipartJson(
+                                  '/api/products',
+                                  apiData,
+                                  fileField: 'image',
+                                  fileBytes: selectedImage!.bytes!,
+                                  fileName: selectedImage!.name,
+                                );
+                              }
                             }
                           } else {
                             final localData = <String, dynamic>{
@@ -1118,22 +1151,108 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
                       onPressed: () async {
                         final name = catController.text.trim();
                         if (name.isNotEmpty) {
-                          final db = await DatabaseHelper.instance.database;
                           try {
-                            await db.insert('categories', {
-                              'name': name,
-                              'restaurant_id': DatabaseHelper.currentRestaurantId,
-                            });
+                            if (await ApiMode.useBackendApi()) {
+                              await const BackendApiClient().postJson(
+                                '/api/v1/categories',
+                                {'name': name},
+                              );
+                            } else {
+                              final db = await DatabaseHelper.instance.database;
+                              await db.insert('categories', {
+                                'name': name,
+                                'restaurant_id': DatabaseHelper.currentRestaurantId,
+                              });
+                            }
                             catController.clear();
                             _loadCategories();
                             Navigator.pop(context);
                           } catch (e) {
-
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Could not add category: $e')),
+                              );
+                            }
                           }
                         }
                       },
                     ),
                   ],
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 220,
+                  child: ListView.builder(
+                    itemCount: _categoryRecords.length,
+                    itemBuilder: (context, index) {
+                      final category = _categoryRecords[index];
+                      final id = (category['id'] as num?)?.toInt();
+                      final name = category['name']?.toString() ?? '';
+                      return ListTile(
+                        dense: true,
+                        title: Text(name),
+                        trailing: Wrap(
+                          children: [
+                            IconButton(
+                              tooltip: 'Edit category',
+                              icon: const Icon(Icons.edit_outlined, size: 18),
+                              onPressed: id == null ? null : () async {
+                                final editController = TextEditingController(text: name);
+                                final updatedName = await showDialog<String>(
+                                  context: context,
+                                  builder: (editContext) => AlertDialog(
+                                    title: const Text('Edit category'),
+                                    content: TextField(
+                                      controller: editController,
+                                      autofocus: true,
+                                      decoration: const InputDecoration(labelText: 'Category name'),
+                                    ),
+                                    actions: [
+                                      TextButton(onPressed: () => Navigator.pop(editContext), child: const Text('Cancel')),
+                                      ElevatedButton(onPressed: () => Navigator.pop(editContext, editController.text.trim()), child: const Text('Save')),
+                                    ],
+                                  ),
+                                );
+                                if (updatedName == null || updatedName.isEmpty) return;
+                                try {
+                                  if (await ApiMode.useBackendApi()) {
+                                    await const BackendApiClient().putJson('/api/v1/categories/$id', {'name': updatedName});
+                                  } else {
+                                    final db = await DatabaseHelper.instance.database;
+                                    await db.update('categories', {'name': updatedName}, where: 'id = ?', whereArgs: [id]);
+                                  }
+                                  await _loadCategories();
+                                  await _loadProducts();
+                                  setCatState(() {});
+                                } catch (e) {
+                                  if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not update category: $e')));
+                                }
+                              },
+                            ),
+                            IconButton(
+                              tooltip: 'Delete category',
+                              icon: const Icon(Icons.delete_outline, color: Colors.red, size: 18),
+                              onPressed: id == null ? null : () async {
+                                try {
+                                  if (await ApiMode.useBackendApi()) {
+                                    await const BackendApiClient().delete('/api/v1/categories/$id');
+                                  } else {
+                                    final db = await DatabaseHelper.instance.database;
+                                    await db.delete('categories', where: 'id = ?', whereArgs: [id]);
+                                  }
+                                  await _loadCategories();
+                                  await _loadProducts();
+                                  setCatState(() {});
+                                } catch (e) {
+                                  if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not delete category: $e')));
+                                }
+                              },
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                 ),
               ],
             ),
@@ -1526,18 +1645,20 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
                     ),
                     const SizedBox(height: 8),
                     Center(
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: isDark ? Colors.grey.shade800.withOpacity(0.5) : AppColors.primaryLight.withOpacity(0.5),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          product.isVeg == 1 ? Icons.local_pizza : Icons.lunch_dining,
-                          size: 36,
-                          color: AppColors.primaryMaterialColor[300]!,
-                        ),
-                      ),
+                      child: product.imagePath != null &&
+                              product.imagePath!.trim().startsWith('http')
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Image.network(
+                                product.imagePath!.trim(),
+                                width: 100,
+                                height: 86,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) =>
+                                    _productImagePlaceholder(product, isDark),
+                              ),
+                            )
+                          : _productImagePlaceholder(product, isDark),
                     ),
                     const SizedBox(height: 8),
                     Column(
@@ -1606,6 +1727,25 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _productImagePlaceholder(ProductModel product, bool isDark) {
+    return Container(
+      width: 86,
+      height: 86,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.grey.shade800.withOpacity(0.5)
+            : AppColors.primaryLight.withOpacity(0.5),
+        shape: BoxShape.circle,
+      ),
+      child: Icon(
+        product.isVeg == 1 ? Icons.local_pizza : Icons.lunch_dining,
+        size: 36,
+        color: AppColors.primaryMaterialColor[300]!,
       ),
     );
   }

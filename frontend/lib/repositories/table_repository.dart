@@ -15,7 +15,7 @@ class TableRepository {
     if (await _useBackendApi()) {
       final restaurantId = DatabaseHelper.currentRestaurantId ?? 1;
       final response = await _apiClient.getJson(
-        '/api/tables?restaurantId=$restaurantId',
+        '/api/v1/tables?restaurantId=$restaurantId',
       );
       return _parseTables(response);
     }
@@ -40,7 +40,7 @@ class TableRepository {
   Future<int> addTable(TableModel table) async {
     if (await _useBackendApi()) {
       final response = await _apiClient.postJson(
-        '/api/tables',
+        '/api/v1/tables',
         _toApiMap(table),
       );
       final id = response['id'];
@@ -77,7 +77,7 @@ class TableRepository {
         throw ArgumentError('Table ID is required for update');
       }
 
-      await _apiClient.putJson('/api/tables/$id', _toApiMap(table));
+      await _apiClient.putJson('/api/v1/tables/$id', _toApiMap(table));
       return 1;
     }
 
@@ -110,7 +110,7 @@ class TableRepository {
 
   Future<int> deleteTable(int id) async {
     if (await _useBackendApi()) {
-      await _apiClient.delete('/api/tables/$id');
+      await _apiClient.delete('/api/v1/tables/$id');
       return 1;
     }
 
@@ -131,19 +131,10 @@ class TableRepository {
 
   Future<int> updateTableStatus(int id, String status) async {
     if (await _useBackendApi()) {
-      // Reuse the existing GET and PUT APIs, preserving other table fields.
-      final response = await _apiClient.getJson('/api/tables/$id');
-      if (response is! Map) {
-        throw const FormatException('Invalid table response from backend');
-      }
-
-      final table = TableModel.fromMap(
-        Map<String, dynamic>.from(response),
-      );
-
-      await _apiClient.putJson(
-        '/api/tables/$id',
-        _toApiMap(table.copyWith(status: status)),
+      // Status has its own permission and transition checks on the backend.
+      await _apiClient.patchJson(
+        '/api/v1/tables/$id/status?status=${Uri.encodeQueryComponent(status)}',
+        {},
       );
 
       return 1;

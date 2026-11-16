@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:dine_master/core/theme/app_colors.dart';
+import '../core/database/database_helper.dart';
 import '../repositories/product_repository.dart';
 import '../models/product_model.dart';
+import '../services/backend_api_client.dart';
 import '../widgets/food_attributes_badge.dart';
 
 class MenuCardScreen extends StatefulWidget {
@@ -26,12 +29,36 @@ class _MenuCardScreenState extends State<MenuCardScreen> {
 
   Future<void> _loadProducts() async {
     setState(() => _isLoading = true);
-    final products = await _productRepository.getProducts();
-    if (!mounted) return;
-    setState(() {
-      _products = products;
-      _isLoading = false;
-    });
+    try {
+      final List<ProductModel> products;
+      if (kIsWeb) {
+        final restaurantId = DatabaseHelper.currentRestaurantId ?? 1;
+        final response = await const BackendApiClient().getJson(
+          '/api/v1/products?restaurantId=$restaurantId',
+        );
+        if (response is! List) {
+          throw const FormatException('Unexpected products response');
+        }
+        products = response
+            .whereType<Map>()
+            .map((item) => ProductModel.fromMap(Map<String, dynamic>.from(item)))
+            .toList();
+      } else {
+        products = await _productRepository.getProducts();
+      }
+      if (!mounted) return;
+      setState(() {
+        _products = products;
+        _isLoading = false;
+      });
+    } catch (error) {
+      debugPrint('Could not load menu card products: $error');
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not load menu: $error')),
+      );
+    }
   }
 
   List<String> get _categories {
@@ -77,6 +104,31 @@ class _MenuCardScreenState extends State<MenuCardScreen> {
       default:
         return const Color(0xFFC62828);
     }
+  }
+
+  Widget _menuCardImageFallback(ProductModel product) {
+    final vegColor = _vegColor(product.isVeg);
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [AppColors.primary, Color(0xFF10274D)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+      child: Center(
+        child: Container(
+          width: 54,
+          height: 54,
+          decoration: BoxDecoration(
+            color: Colors.white.withAlpha(20),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white.withAlpha(40)),
+          ),
+          child: Icon(_vegIcon(product.isVeg), size: 28, color: vegColor),
+        ),
+      ),
+    );
   }
 
   @override
@@ -382,30 +434,16 @@ class _MenuCardScreenState extends State<MenuCardScreen> {
               fit: StackFit.expand,
               children: [
                 // Image / brand area
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        AppColors.primary.withAlpha(235),
-                        const Color(0xFF10274D),
-                      ],
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                    ),
-                  ),
-                  child: Center(
-                    child: Container(
-                      width: 54,
-                      height: 54,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withAlpha(20),
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white.withAlpha(40)),
-                      ),
-                      child: Icon(_vegIcon(product.isVeg), size: 28, color: vegColor),
-                    ),
-                  ),
-                ),
+                if (product.imagePath != null &&
+                    product.imagePath!.trim().startsWith('http'))
+                  Image.network(
+                    product.imagePath!.trim(),
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) =>
+                        _menuCardImageFallback(product),
+                  )
+                else
+                  _menuCardImageFallback(product),
                 // Classic veg / non-veg indicator
                 Positioned(
                   top: 8,

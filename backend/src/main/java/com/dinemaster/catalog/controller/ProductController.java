@@ -8,6 +8,10 @@ import com.dinemaster.catalog.entity.Product;
 import com.dinemaster.catalog.dto.ProductAvailabilityRequest;
 import com.dinemaster.catalog.repository.CategoryRepository;
 import com.dinemaster.catalog.repository.ProductRepository;
+import com.cloudinary.Cloudinary;
+import com.cloudinary.utils.ObjectUtils;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.dinemaster.recipe.entity.Recipe;
 import com.dinemaster.restaurant.entity.Restaurant;
 import com.dinemaster.restaurant.repository.RestaurantRepository;
@@ -15,14 +19,19 @@ import com.dinemaster.security.BranchScopeService;
 import jakarta.validation.Valid;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.util.MultiValueMap;
 
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.io.IOException;
 
 @RestController
 @RequestMapping("/api/v1/products")
@@ -32,16 +41,22 @@ public class ProductController {
     private final CategoryRepository categoryRepository;
     private final RestaurantRepository restaurantRepository;
     private final BranchScopeService branchScope;
+    private final Cloudinary cloudinary;
+    private final ObjectMapper objectMapper;
 
     public ProductController(
             ProductRepository productRepository,
             CategoryRepository categoryRepository,
             RestaurantRepository restaurantRepository,
-            BranchScopeService branchScope) {
+            BranchScopeService branchScope,
+            ObjectProvider<Cloudinary> cloudinaryProvider,
+            ObjectMapper objectMapper) {
         this.productRepository = productRepository;
         this.categoryRepository = categoryRepository;
         this.restaurantRepository = restaurantRepository;
         this.branchScope = branchScope;
+        this.cloudinary = cloudinaryProvider.getIfAvailable();
+        this.objectMapper = objectMapper;
     }
 
     // GET: Fetch available products
@@ -88,6 +103,55 @@ public class ProductController {
     @PreAuthorize("hasAuthority('menu:manage')")
     public ResponseEntity<?> createProduct(
             @Valid @RequestBody Product product, Authentication authentication) {
+        return saveProduct(product, null, authentication);
+    }
+
+    /** Create a product and upload its image in the same multipart request. */
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAuthority('menu:manage')")
+    public ResponseEntity<?> createProductWithImage(
+            @RequestParam MultiValueMap<String, String> formFields,
+            @RequestPart("image") MultipartFile image,
+            Authentication authentication) {
+        if (image.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Product image is required"));
+        }
+        final Product product;
+        try {
+            String productJson = formFields.getFirst("product");
+            product = productJson == null
+                    ? objectMapper.convertValue(formFields.toSingleValueMap(), Product.class)
+                    : objectMapper.readValue(productJson, Product.class);
+        } catch (JsonProcessingException | IllegalArgumentException e) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Provide valid product fields or valid JSON in the product field"));
+        }
+        return saveProduct(product, image, authentication);
+    }
+
+    /** Upload an image for a product that was already created. */
+    @PostMapping(value = "/{id}/image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAuthority('menu:manage')")
+    public ResponseEntity<?> uploadImageForExistingProduct(
+            @PathVariable Long id,
+            @RequestPart("image") MultipartFile image,
+            Authentication authentication) {
+        if (image.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Product image is required"));
+        }
+        return productRepository.findById(id)
+                .<ResponseEntity<?>>map(product -> {
+                    branchScope.requireBranch(authentication, product.getRestaurantId());
+                    ResponseEntity<?> uploadError = uploadProductImage(product, image);
+                    if (uploadError != null) return uploadError;
+                    return ResponseEntity.ok(productRepository.save(product));
+                })
+                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("error", "Product not found")));
+    }
+
+    private ResponseEntity<?> saveProduct(
+            Product product, MultipartFile image, Authentication authentication) {
         ResponseEntity<Map<String, String>> validation = validateProduct(product);
 
         if (validation != null) {
@@ -114,9 +178,43 @@ public class ProductController {
             product.setGstPercentage(new BigDecimal("5.00"));
         }
 
+        if (image != null && !image.isEmpty()) {
+            ResponseEntity<?> imageError = uploadProductImage(product, image);
+            if (imageError != null) return imageError;
+        }
+
         Product savedProduct = productRepository.save(product);
 
         return ResponseEntity.status(HttpStatus.CREATED).body(savedProduct);
+    }
+
+    private ResponseEntity<?> uploadProductImage(Product product, MultipartFile image) {
+        if (cloudinary == null) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(Map.of("error", "Cloudinary is not configured"));
+        }
+        if (image.getSize() > 10L * 1024 * 1024) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Image must be 10 MB or smaller"));
+        }
+        String contentType = image.getContentType();
+        if (contentType == null || !contentType.toLowerCase().startsWith("image/")) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Uploaded file must be an image"));
+        }
+        try {
+            Map<?, ?> result = cloudinary.uploader().upload(image.getBytes(), ObjectUtils.asMap(
+                    "folder", "dinemaster/menu",
+                    "resource_type", "image"));
+            Object secureUrl = result.get("secure_url");
+            if (secureUrl == null) {
+                return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                        .body(Map.of("error", "Cloudinary did not return an image URL"));
+            }
+            product.setImagePath(secureUrl.toString());
+            return null;
+        } catch (IOException | RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(Map.of("error", "Could not upload product image"));
+        }
     }
 
     // PUT: Update a product
@@ -266,7 +364,10 @@ public class ProductController {
         target.setIngredients(source.getIngredients());
         target.setPrice(source.getPrice());
         target.setVeg(source.getVeg());
-        target.setImagePath(source.getImagePath());
+        // A null image path means the caller did not replace the image.
+        if (source.getImagePath() != null) {
+            target.setImagePath(source.getImagePath());
+        }
         target.setAvailable(source.isAvailable());
         target.setGstPercentage(
                 source.getGstPercentage() == null

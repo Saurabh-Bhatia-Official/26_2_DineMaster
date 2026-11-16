@@ -8,6 +8,7 @@ import '../models/user_model.dart';
 import '../repositories/restaurant_repository.dart';
 import '../repositories/user_repository.dart';
 import '../services/sync_service.dart';
+import '../services/backend_api_client.dart';
 import 'package:dine_master/core/theme/app_colors.dart';
 
 class UserManagementScreen extends StatefulWidget {
@@ -134,6 +135,118 @@ class _UserManagementScreenState extends State<UserManagementScreen>
       if (mounted) setState(() => _branches = branches);
     } catch (e) {
       debugPrint('Error loading branches: $e');
+    }
+  }
+
+  Future<void> _showRolePermissions() async {
+    if (!await _useBackendApi()) return;
+    try {
+      const api = BackendApiClient();
+      final results = await Future.wait([
+        api.getJson('/api/v1/roles'),
+        api.getJson('/api/v1/roles/permissions'),
+      ]);
+      final roles = results[0] is List
+          ? (results[0] as List).whereType<Map>()
+              .map((role) => Map<String, dynamic>.from(role)).toList()
+          : <Map<String, dynamic>>[];
+      final permissions = results[1] is List
+          ? (results[1] as List).map((value) => value.toString()).toList()
+          : <String>[];
+      if (roles.isEmpty || permissions.isEmpty || !mounted) return;
+
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          var selectedRole = roles.first['code'].toString();
+          var grants = (roles.first['permissions'] as List? ?? [])
+              .map((value) => value.toString()).toSet();
+          var saving = false;
+          return StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+              title: const Text('Role Permissions'),
+              content: SizedBox(
+                width: 520,
+                height: 480,
+                child: Column(
+                  children: [
+                    DropdownButtonFormField<String>(
+                      value: selectedRole,
+                      decoration: const InputDecoration(labelText: 'Role'),
+                      items: roles.map((role) => DropdownMenuItem(
+                        value: role['code'].toString(),
+                        child: Text(role['name'].toString()),
+                      )).toList(),
+                      onChanged: (value) {
+                        if (value == null) return;
+                        final role = roles.firstWhere(
+                          (item) => item['code'].toString() == value,
+                        );
+                        setDialogState(() {
+                          selectedRole = value;
+                          grants = (role['permissions'] as List? ?? [])
+                              .map((item) => item.toString()).toSet();
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: ListView(
+                        children: permissions.map((permission) => CheckboxListTile(
+                          dense: true,
+                          title: Text(permission),
+                          value: grants.contains(permission),
+                          onChanged: (value) => setDialogState(() {
+                            if (value == true) {
+                              grants.add(permission);
+                            } else {
+                              grants.remove(permission);
+                            }
+                          }),
+                        )).toList(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: saving ? null : () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: saving ? null : () async {
+                    setDialogState(() => saving = true);
+                    try {
+                      await api.patchJson(
+                        '/api/v1/roles/$selectedRole/permissions',
+                        {'permissions': grants.toList()},
+                      );
+                      if (dialogContext.mounted) Navigator.pop(dialogContext);
+                    } catch (e) {
+                      setDialogState(() => saving = false);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Could not save permissions: $e')),
+                        );
+                      }
+                    }
+                  },
+                  child: saving
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Text('Save'),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not load role permissions: $e')),
+        );
+      }
     }
   }
 
@@ -516,6 +629,120 @@ class _UserManagementScreenState extends State<UserManagementScreen>
     );
   }
 
+  Future<void> _reactivateStaff(int id) async {
+    try {
+      await _userRepository.reactivateUser(id);
+      await _loadUsers();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not reactivate staff: $e')),
+      );
+    }
+  }
+
+  Future<void> _showPasswordReset(int id, String name) async {
+    final passwordController = TextEditingController();
+    final reasonController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Reset $name password'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: passwordController,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'Temporary password (10+ characters)'),
+            ),
+            TextField(
+              controller: reasonController,
+              decoration: const InputDecoration(labelText: 'Reason (optional)'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Reset')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await _userRepository.resetUserPassword(
+        id,
+        passwordController.text,
+        reason: reasonController.text,
+      );
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Temporary password set; staff must change it at next login.')),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not reset password: $e')),
+      );
+    }
+  }
+
+  Future<void> _showStaffRecords(int id, {required bool audit}) async {
+    try {
+      final response = audit
+          ? await _userRepository.getUserAudit(id)
+          : await _userRepository.getUserSessions(id);
+      final entries = response is List ? response : <dynamic>[];
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(audit ? 'Staff audit history' : 'Active staff sessions'),
+          content: SizedBox(
+            width: 500,
+            height: 360,
+            child: entries.isEmpty
+                ? const Center(child: Text('No records found'))
+                : ListView.builder(
+                    itemCount: entries.length,
+                    itemBuilder: (context, index) {
+                      final row = entries[index];
+                      final map = row is Map ? Map<String, dynamic>.from(row) : <String, dynamic>{};
+                      final primary = audit
+                          ? (map['action'] ?? map['eventType'] ?? 'Audit event')
+                          : (map['deviceId'] ?? 'Session');
+                      final secondary = map.entries
+                          .where((entry) => entry.key != 'action' && entry.key != 'eventType')
+                          .map((entry) => '${entry.key}: ${entry.value}')
+                          .join(' · ');
+                      return ListTile(title: Text(primary.toString()), subtitle: Text(secondary));
+                    },
+                  ),
+          ),
+          actions: [
+            if (!audit && entries.isNotEmpty)
+              TextButton(
+                onPressed: () async {
+                  try {
+                    await _userRepository.revokeUserSessions(id);
+                    if (dialogContext.mounted) Navigator.pop(dialogContext);
+                    await _loadUsers();
+                  } catch (e) {
+                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Could not revoke sessions: $e')),
+                    );
+                  }
+                },
+                child: const Text('Revoke all'),
+              ),
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close')),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not load staff records: $e')),
+      );
+    }
+  }
+
   Widget _buildEmployeeList(List<Map<String, dynamic>> list) {
     final query = _searchQuery.toLowerCase();
 
@@ -748,6 +975,46 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                         }
                       },
                     ),
+                    PopupMenuButton<String>(
+                      tooltip: 'More staff actions',
+                      onSelected: (action) {
+                        final id = (employee['id'] as num?)?.toInt();
+                        if (id == null) return;
+                        switch (action) {
+                          case 'reactivate':
+                            _reactivateStaff(id);
+                            break;
+                          case 'reset_password':
+                            _showPasswordReset(id, name);
+                            break;
+                          case 'sessions':
+                            _showStaffRecords(id, audit: false);
+                            break;
+                          case 'audit':
+                            _showStaffRecords(id, audit: true);
+                            break;
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        if (!isActive)
+                          const PopupMenuItem(
+                            value: 'reactivate',
+                            child: Text('Reactivate'),
+                          ),
+                        const PopupMenuItem(
+                          value: 'reset_password',
+                          child: Text('Reset password'),
+                        ),
+                        const PopupMenuItem(
+                          value: 'sessions',
+                          child: Text('View / revoke sessions'),
+                        ),
+                        const PopupMenuItem(
+                          value: 'audit',
+                          child: Text('Audit history'),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ],
@@ -787,6 +1054,13 @@ class _UserManagementScreenState extends State<UserManagementScreen>
         backgroundColor: isDark ? null : Colors.white,
         foregroundColor: isDark ? null : Colors.black,
         elevation: 0,
+        actions: [
+          IconButton(
+            tooltip: 'Role permissions',
+            onPressed: _showRolePermissions,
+            icon: const Icon(Icons.admin_panel_settings_outlined),
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           labelColor: AppColors.primary,

@@ -21,6 +21,7 @@ import 'screens/printer_settings_screen.dart';
 import 'screens/restaurants_screen.dart';
 import 'screens/menu_card_screen.dart';
 import 'screens/live_tracking_screen.dart';
+import 'screens/customers_screen.dart';
 import 'screens/waiter_order_screen.dart';
 import 'services/server_service.dart';
 import 'services/sync_service.dart';
@@ -104,6 +105,10 @@ GoRouter _buildRouter(bool hasToken, [String? initialLocation]) {
           GoRoute(
             path: '/dashboard/accounts',
             builder: (context, state) => const AccountsScreen(),
+          ),
+          GoRoute(
+            path: '/dashboard/customers',
+            builder: (context, state) => const CustomersScreen(),
           ),
           GoRoute(
             path: '/dashboard/tables',

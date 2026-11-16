@@ -29,6 +29,7 @@ class RestaurantRepository {
 
       return response
           .map((item) => Map<String, dynamic>.from(item as Map))
+          .where((restaurant) => restaurant['active'] != false)
           .toList();
     }
 
@@ -44,13 +45,17 @@ class RestaurantRepository {
 
   /// Creates a new restaurant. Returns the new record's id.
   Future<int> createRestaurant({
+    required String code,
     required String name,
+    String timezone = 'Asia/Kolkata',
     String? address,
     String? phone,
   }) async {
     if (await _useBackendApi()) {
       final response = await _apiClient.postJson('/api/v1/branches', {
+        'code': code,
         'name': name,
+        'timezone': timezone,
         if (address != null && address.isNotEmpty) 'address': address,
         if (phone != null && phone.isNotEmpty) 'phone': phone,
       });
@@ -87,16 +92,20 @@ class RestaurantRepository {
   // UPDATE
   // ---------------------------------------------------------------------------
 
-  /// Updates name/address/phone of an existing restaurant by [id].
+  /// Updates branch details for an existing restaurant by [id].
   Future<void> updateRestaurant({
     required int id,
+    required String code,
     required String name,
+    String timezone = 'Asia/Kolkata',
     String? address,
     String? phone,
   }) async {
     if (await _useBackendApi()) {
       await _apiClient.putJson('/api/v1/branches/$id', {
+        'code': code,
         'name': name,
+        'timezone': timezone,
         'address': address,
         'phone': phone,
       });
@@ -137,7 +146,8 @@ class RestaurantRepository {
   /// or 1 on success (API).
   Future<int> deleteRestaurant(int id) async {
     if (await _useBackendApi()) {
-      await _apiClient.delete('/api/v1/branches/$id');
+      // The backend suspends branches rather than deleting their history.
+      await _apiClient.postJson('/api/v1/branches/$id/suspend', {});
 
       SyncService.instance.broadcastEvent('database_update', {
         'action': 'delete_restaurant',

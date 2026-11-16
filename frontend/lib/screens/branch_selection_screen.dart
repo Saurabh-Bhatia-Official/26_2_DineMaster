@@ -5,8 +5,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import '../core/api/api_mode.dart';
 import '../core/database/database_helper.dart';
-import 'package:flutter/foundation.dart';
-import '../services/backend_api_client.dart';
+import '../repositories/restaurant_repository.dart';
 
 class BranchSelectionScreen extends StatefulWidget {
   const BranchSelectionScreen({super.key});
@@ -27,25 +26,7 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
 
   Future<void> _loadRestaurants() async {
     try {
-      List<Map<String, dynamic>> restaurants;
-
-      if (kIsWeb) {
-        final response = await const BackendApiClient().getJson(
-          '/api/v1/branches',
-        );
-
-        if (response is! List) {
-          throw const FormatException('Unexpected restaurants response');
-        }
-
-        restaurants = response
-            .whereType<Map>()
-            .map((item) => Map<String, dynamic>.from(item))
-            .toList();
-      } else {
-        final db = await DatabaseHelper.instance.database;
-        restaurants = await db.query('restaurants');
-      }
+      final restaurants = await RestaurantRepository().getRestaurants();
 
       if (!mounted) return;
       setState(() {
@@ -141,14 +122,14 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
                                       ),
                                       child: ListTile(
                                         title: Text(
-                                          restaurant['name'],
+                                          restaurant['name']?.toString() ?? '',
                                           style: const TextStyle(
                                             color: Colors.white,
                                             fontWeight: FontWeight.bold,
                                           ),
                                         ),
                                         subtitle: Text(
-                                          restaurant['address'] ?? 'No address',
+                                          restaurant['address']?.toString() ?? 'No address',
                                           style: const TextStyle(
                                             color: Colors.white70,
                                           ),
@@ -159,7 +140,7 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
                                           size: 16,
                                         ),
                                         onTap: () async {
-                                          final id = restaurant['id'] as int;
+                                          final id = (restaurant['id'] as num).toInt();
                                           DatabaseHelper.currentRestaurantId =
                                               id;
                                           await ApiMode.setCurrentRestaurantId(

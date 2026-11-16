@@ -154,10 +154,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
       'category': 'Management',
     },
     {
+      'icon': Icons.people_alt_outlined,
+      'selectedIcon': Icons.people_alt,
+      'label': 'Customers',
+      'route': '/dashboard/customers',
+      'category': 'Management',
+    },
+    {
       'icon': Icons.analytics_outlined,
       'selectedIcon': Icons.analytics,
       'label': 'Analytics',
       'route': '/dashboard/analytics',
+      'category': 'Admin',
+    },
+    {
+      'icon': Icons.people_outline,
+      'selectedIcon': Icons.people,
+      'label': 'Staff Management',
+      'route': '/dashboard/user_management',
       'category': 'Admin',
     },
     {
