@@ -22,5 +22,6 @@
         "PATH": "${workspaceFolder}\\.venv\\jdk\\bin;${workspaceFolder}\\.venv\\flutter\\bin;${workspaceFolder}\\.venv\\flutter\\bin\\cache\\dart-sdk\\bin;${workspaceFolder}\\backend;${workspaceFolder}\\.venv\\Scripts;${env:PATH}"
     },
     "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
-    "python.terminal.activateEnvironment": true
+    "python.terminal.activateEnvironment": true,
+    "cmake.sourceDirectory": "C:/Users/DELL/OneDrive/Desktop/My C++/Complex Inv/26_2_DineMaster/frontend/linux"
 }

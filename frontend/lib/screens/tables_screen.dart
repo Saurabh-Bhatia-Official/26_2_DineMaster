@@ -135,11 +135,7 @@ class _TablesScreenState extends State<TablesScreen> {
       );
     } else {
       final db = await DatabaseHelper.instance.database;
-      await db.delete(
-        'bookings',
-        where: 'id = ?',
-        whereArgs: [reservationId],
-      );
+      await db.delete('bookings', where: 'id = ?', whereArgs: [reservationId]);
     }
     await _loadTables();
   }
@@ -1466,9 +1462,11 @@ class _TablesScreenState extends State<TablesScreen> {
                 color: AppColors.primary,
               ),
               const SizedBox(width: 8),
-              Text(existingBooking == null
-                  ? 'Reserve ${table.displayName}'
-                  : 'Edit reservation for ${table.displayName}'),
+              Text(
+                existingBooking == null
+                    ? 'Reserve ${table.displayName}'
+                    : 'Edit reservation for ${table.displayName}',
+              ),
             ],
           ),
           content: SingleChildScrollView(
@@ -1749,9 +1747,11 @@ class _TablesScreenState extends State<TablesScreen> {
                     await _loadTables();
                     messenger?.showSnackBar(
                       SnackBar(
-                        content: Text(existingBooking == null
-                            ? 'Reservation confirmed for ${table.displayName}'
-                            : 'Reservation updated for ${table.displayName}'),
+                        content: Text(
+                          existingBooking == null
+                              ? 'Reservation confirmed for ${table.displayName}'
+                              : 'Reservation updated for ${table.displayName}',
+                        ),
                         backgroundColor: const Color(0xFF2E7D32),
                       ),
                     );
@@ -2072,21 +2072,28 @@ class _TablesScreenState extends State<TablesScreen> {
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close')),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Close'),
+            ),
           ],
         ),
       );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not create table QR: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not create table QR: $e')),
+        );
+      }
     }
   }
 
   Future<void> _manageFloors() async {
     if (!await ApiMode.useBackendApi()) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Floor management requires backend API mode.')),
+        const SnackBar(
+          content: Text('Floor management requires backend API mode.'),
+        ),
       );
       return;
     }
@@ -2099,15 +2106,21 @@ class _TablesScreenState extends State<TablesScreen> {
       );
       final items = result is Map ? result['items'] : null;
       floors = items is List
-          ? items.whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList()
+          ? items
+                .whereType<Map>()
+                .map((item) => Map<String, dynamic>.from(item))
+                .toList()
           : <Map<String, dynamic>>[];
     }
+
     try {
       await reload();
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not load floors: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not load floors: $e')));
+      }
       return;
     }
     if (!mounted) return;
@@ -2123,24 +2136,41 @@ class _TablesScreenState extends State<TablesScreen> {
               children: [
                 Row(
                   children: [
-                    Expanded(child: TextField(controller: nameController, decoration: const InputDecoration(labelText: 'New floor name'))),
+                    Expanded(
+                      child: TextField(
+                        controller: nameController,
+                        decoration: const InputDecoration(
+                          labelText: 'New floor name',
+                        ),
+                      ),
+                    ),
                     IconButton(
-                      icon: const Icon(Icons.add_circle, color: AppColors.primary),
+                      icon: const Icon(
+                        Icons.add_circle,
+                        color: AppColors.primary,
+                      ),
                       onPressed: () async {
                         final name = nameController.text.trim();
                         if (name.isEmpty) return;
                         try {
-                          await const BackendApiClient().postJson(
-                            '/api/v1/floors?branchId=$branchId',
-                            {'name': name, 'description': null, 'displayOrder': floors.length, 'active': true},
-                          );
+                          await const BackendApiClient()
+                              .postJson('/api/v1/floors?branchId=$branchId', {
+                                'name': name,
+                                'description': null,
+                                'displayOrder': floors.length,
+                                'active': true,
+                              });
                           nameController.clear();
                           await reload();
                           setDialogState(() {});
                         } catch (e) {
-                          if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Could not add floor: $e')),
-                          );
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Could not add floor: $e'),
+                              ),
+                            );
+                          }
                         }
                       },
                     ),
@@ -2158,8 +2188,14 @@ class _TablesScreenState extends State<TablesScreen> {
                         title: Text(floor['name']?.toString() ?? ''),
                         subtitle: Text(active ? 'Active' : 'Inactive'),
                         trailing: IconButton(
-                          tooltip: active ? 'Deactivate floor' : 'Activate floor',
-                          icon: Icon(active ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                          tooltip: active
+                              ? 'Deactivate floor'
+                              : 'Activate floor',
+                          icon: Icon(
+                            active
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                          ),
                           onPressed: () async {
                             try {
                               await const BackendApiClient().putJson(
@@ -2167,16 +2203,21 @@ class _TablesScreenState extends State<TablesScreen> {
                                 {
                                   'name': floor['name'],
                                   'description': floor['description'],
-                                  'displayOrder': floor['displayOrder'] ?? index,
+                                  'displayOrder':
+                                      floor['displayOrder'] ?? index,
                                   'active': !active,
                                 },
                               );
                               await reload();
                               setDialogState(() {});
                             } catch (e) {
-                              if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Could not update floor: $e')),
-                              );
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Could not update floor: $e'),
+                                  ),
+                                );
+                              }
                             }
                           },
                         ),
@@ -2187,7 +2228,12 @@ class _TablesScreenState extends State<TablesScreen> {
               ],
             ),
           ),
-          actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Done'))],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Done'),
+            ),
+          ],
         ),
       ),
     );
@@ -4361,7 +4407,10 @@ class _TablesScreenState extends State<TablesScreen> {
                     children: [
                       IconButton(
                         tooltip: 'Edit reservation',
-                        icon: const Icon(Icons.edit_outlined, color: Colors.blue),
+                        icon: const Icon(
+                          Icons.edit_outlined,
+                          color: Colors.blue,
+                        ),
                         onPressed: () {
                           final entry = _enrichedTables.where((item) {
                             final table = item['table'] as TableModel;
@@ -4408,7 +4457,10 @@ class _TablesScreenState extends State<TablesScreen> {
                       ),
                       IconButton(
                         tooltip: 'Delete reservation',
-                        icon: const Icon(Icons.delete_outline, color: Colors.red),
+                        icon: const Icon(
+                          Icons.delete_outline,
+                          color: Colors.red,
+                        ),
                         onPressed: () async {
                           final confirmed = await showDialog<bool>(
                             context: context,
@@ -4419,11 +4471,13 @@ class _TablesScreenState extends State<TablesScreen> {
                               ),
                               actions: [
                                 TextButton(
-                                  onPressed: () => Navigator.pop(dialogContext, false),
+                                  onPressed: () =>
+                                      Navigator.pop(dialogContext, false),
                                   child: const Text('Keep'),
                                 ),
                                 TextButton(
-                                  onPressed: () => Navigator.pop(dialogContext, true),
+                                  onPressed: () =>
+                                      Navigator.pop(dialogContext, true),
                                   child: const Text('Delete'),
                                 ),
                               ],
