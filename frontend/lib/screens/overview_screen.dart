@@ -161,6 +161,7 @@ class _OverviewScreenState extends State<OverviewScreen> {
       }
     }
   }
+
   Color _statusColor(String status) {
     switch (status) {
       case 'Preparing':
@@ -205,98 +206,79 @@ class _OverviewScreenState extends State<OverviewScreen> {
         onRefresh: _loadOverviewData,
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(
+            MediaQuery.of(context).size.width < 600 ? 16 : 28,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Welcome Header
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Welcome Back, $_username',
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const Text(
-                          'Here is what is happening today',
-                          style: TextStyle(color: Colors.grey),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  CircleAvatar(
-                    radius: 24,
-                    backgroundColor: AppColors.primary,
-                    child: Text(
-                      _username.isNotEmpty ? _username[0].toUpperCase() : 'U',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                      ),
-                    ),
-                  ),
-                ],
-              ).animate().fadeIn().slideY(begin: -0.1),
-              const SizedBox(height: 32),
+              _buildWelcomeBanner(
+                context,
+              ).animate().fadeIn().slideY(begin: -.06),
+              const SizedBox(height: 24),
 
               // Metrics Grid
               GridView.count(
-                crossAxisCount: MediaQuery.of(context).size.width >= 1024
+                crossAxisCount: MediaQuery.sizeOf(context).width >= 1360
                     ? 4
-                    : 2,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
+                    : MediaQuery.sizeOf(context).width >= 600
+                    ? 2
+                    : 1,
+                childAspectRatio: MediaQuery.sizeOf(context).width >= 1360
+                    ? 1.45
+                    : MediaQuery.sizeOf(context).width >= 600
+                    ? 1.65
+                    : 2.35,
+                crossAxisSpacing: 14,
+                mainAxisSpacing: 14,
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 children: [
                   _buildMetricCard(
                     'Total Sales',
                     '₹${_totalSales.toStringAsFixed(2)}',
-                    Icons.currency_rupee,
-                    Colors.green,
+                    Icons.currency_rupee_rounded,
+                    AppColors.orange,
                     'Paid revenue today',
                   ),
                   _buildMetricCard(
                     'Live Orders',
                     '$_liveOrdersCount',
-                    Icons.restaurant,
-                    Colors.orange,
+                    Icons.restaurant_rounded,
+                    const Color(0xFFB95D2D),
                     'In preparation / active',
                   ),
                   _buildMetricCard(
                     'Occupied Tables',
                     '$_occupiedTablesCount/$_totalTablesCount',
-                    Icons.table_bar,
-                    Colors.blue,
+                    Icons.table_bar_rounded,
+                    const Color(0xFF64747D),
                     'Active seating layout',
                   ),
                   _buildMetricCard(
                     'Low Stock Items',
                     '$_lowStockCount',
-                    Icons.inventory_2,
-                    _lowStockCount > 0 ? Colors.red : Colors.grey,
+                    Icons.inventory_2_rounded,
+                    _lowStockCount > 0
+                        ? const Color(0xFFD65A4A)
+                        : AppColors.muted,
                     _lowStockCount > 0
                         ? 'Requires attention'
                         : 'Inventory healthy',
                   ),
                 ],
               ).animate().fadeIn(delay: 200.ms),
-              const SizedBox(height: 32),
+              const SizedBox(height: 28),
 
               // Recent Orders Section
               const Text(
                 'Recent Orders',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: AppColors.ink,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -.35,
+                ),
               ).animate().fadeIn(delay: 400.ms),
               const SizedBox(height: 16),
 
@@ -306,7 +288,7 @@ class _OverviewScreenState extends State<OverviewScreen> {
                   color: Colors.white,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
-                    side: BorderSide(color: Colors.grey.shade200),
+                    side: const BorderSide(color: AppColors.line),
                   ),
                   child: const Padding(
                     padding: EdgeInsets.symmetric(vertical: 48, horizontal: 24),
@@ -364,7 +346,7 @@ class _OverviewScreenState extends State<OverviewScreen> {
                           color: Colors.white,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
-                            side: BorderSide(color: Colors.grey.shade200),
+                            side: const BorderSide(color: AppColors.line),
                           ),
                           child: ListTile(
                             leading: CircleAvatar(
@@ -418,6 +400,147 @@ class _OverviewScreenState extends State<OverviewScreen> {
     );
   }
 
+  Widget _buildWelcomeBanner(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 600;
+    final displayName = _username.trim().isEmpty ? 'there' : _username.trim();
+
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [AppColors.charcoal, Color(0xFF343536), Color(0xFF463328)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x1A202326),
+            blurRadius: 24,
+            offset: Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            right: compact ? -42 : 80,
+            top: -90,
+            child: Container(
+              width: 230,
+              height: 230,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: .055),
+                  width: 34,
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.all(compact ? 20 : 26),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 7,
+                            height: 7,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFF82C995),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'YOUR RESTAURANT, AT A GLANCE',
+                            style: TextStyle(
+                              color: Color(0xFFE8A783),
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 1.3,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 11),
+                      Text(
+                        compact
+                            ? 'Welcome back,\n$displayName'
+                            : 'Welcome back, $displayName',
+                        maxLines: compact ? 2 : 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: compact ? 22 : 27,
+                          height: 1.13,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -.65,
+                        ),
+                      ),
+                      const SizedBox(height: 7),
+                      const Text(
+                        'Here is what is happening today.',
+                        style: TextStyle(
+                          color: Color(0xFFCFD0D0),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (!compact) ...[
+                  const SizedBox(width: 18),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: .08),
+                      borderRadius: BorderRadius.circular(13),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: .12),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'TODAY',
+                          style: TextStyle(
+                            color: Color(0xFFB9BABC),
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.1,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          DateFormat('EEE, d MMM').format(DateTime.now()),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMetricCard(
     String title,
     String value,
@@ -425,54 +548,125 @@ class _OverviewScreenState extends State<OverviewScreen> {
     Color color,
     String subtitle,
   ) {
-    return Card(
-      elevation: 0,
-      color: Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: Colors.grey.shade200),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    var hovered = false;
+
+    return StatefulBuilder(
+      builder: (context, setCardState) => MouseRegion(
+        onEnter: (_) => setCardState(() => hovered = true),
+        onExit: (_) => setCardState(() => hovered = false),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          transform: Matrix4.translationValues(0, hovered ? -4 : 0, 0),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: hovered ? const Color(0xFFFFC5A5) : AppColors.line,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: hovered
+                    ? AppColors.orange.withValues(alpha: .12)
+                    : const Color(0x080D1117),
+                blurRadius: hovered ? 22 : 12,
+                offset: Offset(0, hovered ? 12 : 5),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(15),
+            child: Stack(
               children: [
-                Flexible(
-                  child: Text(
-                    title,
-                    style: const TextStyle(
-                      color: Colors.grey,
-                      fontWeight: FontWeight.bold,
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    height: 3,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          color.withValues(alpha: .8),
+                          color.withValues(alpha: .18),
+                        ],
+                      ),
                     ),
-                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                Icon(icon, color: color),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 21, 18, 17),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              title,
+                              style: const TextStyle(
+                                color: AppColors.muted,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: color.withValues(alpha: .10),
+                              borderRadius: BorderRadius.circular(11),
+                            ),
+                            child: Icon(icon, color: color, size: 19),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        value,
+                        style: const TextStyle(
+                          fontSize: 25,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -.5,
+                          color: AppColors.ink,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                      Row(
+                        children: [
+                          Container(
+                            width: 5,
+                            height: 5,
+                            decoration: BoxDecoration(
+                              color: color,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 7),
+                          Expanded(
+                            child: Text(
+                              subtitle,
+                              style: const TextStyle(
+                                color: AppColors.muted,
+                                fontSize: 11,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey.shade900,
-              ),
-              overflow: TextOverflow.ellipsis,
-              maxLines: 1,
-            ),
-            Text(
-              subtitle,
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
 }
-

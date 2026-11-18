@@ -1,4 +1,4 @@
-﻿import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
@@ -21,7 +21,27 @@ class DatabaseHelper {
 
   Future<Database> get database async {
     if (kIsWeb) {
-      return NetworkDatabase(serverIp: 'localhost', port: 8081);
+      final prefs = await SharedPreferences.getInstance();
+      final isServer = prefs.getBool('is_server') ?? true;
+      final configuredServerIp = prefs.getString('server_ip')?.trim();
+      final configuredApiUrl = prefs.getString('backend_api_url')?.trim();
+      final configuredApiUri =
+          configuredApiUrl == null || configuredApiUrl.isEmpty
+          ? null
+          : Uri.tryParse(configuredApiUrl);
+      final apiHost = configuredApiUri != null && configuredApiUri.hasAuthority
+          ? configuredApiUri.host
+          : null;
+      final serverIp =
+          !isServer &&
+              configuredServerIp != null &&
+              configuredServerIp.isNotEmpty
+          ? configuredServerIp
+          : (apiHost == null || apiHost.isEmpty ? 'localhost' : apiHost);
+
+      // The SQL proxy is hosted by the Dart Shelf service on 8082. Port 8081
+      // is the REST API and does not expose /api/db/* endpoints.
+      return NetworkDatabase(serverIp: serverIp, port: 8082);
     }
 
     try {

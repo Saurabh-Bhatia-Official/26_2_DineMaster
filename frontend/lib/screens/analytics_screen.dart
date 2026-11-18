@@ -11,7 +11,8 @@ class AnalyticsScreen extends StatefulWidget {
   State<AnalyticsScreen> createState() => _AnalyticsScreenState();
 }
 
-class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProviderStateMixin {
+class _AnalyticsScreenState extends State<AnalyticsScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   bool _isLoading = true;
 
@@ -51,20 +52,28 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
       final db = await DatabaseHelper.instance.database;
 
       // 1. Total sales (Paid orders)
-      final salesResult = await db.rawQuery("SELECT SUM(total_amount) as total FROM orders WHERE payment_status = 'Paid'");
+      final salesResult = await db.rawQuery(
+        "SELECT SUM(total_amount) as total FROM orders WHERE payment_status = 'Paid'",
+      );
       final totalSalesVal = salesResult.first['total'] as num?;
       _totalSales = totalSalesVal?.toDouble() ?? 0.0;
 
       // 2. Total orders count
-      final ordersCountResult = await db.rawQuery("SELECT COUNT(*) as count FROM orders");
+      final ordersCountResult = await db.rawQuery(
+        "SELECT COUNT(*) as count FROM orders",
+      );
       _totalOrdersCount = ordersCountResult.first['count'] as int? ?? 0;
 
       // 3. Held orders count
-      final heldResult = await db.rawQuery("SELECT COUNT(*) as count FROM orders WHERE status = 'Held'");
+      final heldResult = await db.rawQuery(
+        "SELECT COUNT(*) as count FROM orders WHERE status = 'Held'",
+      );
       _heldOrdersCount = heldResult.first['count'] as int? ?? 0;
 
       // 4. Avg prep time
-      final avgPrepResult = await db.rawQuery("SELECT AVG(estimated_time) as avg_time FROM kot");
+      final avgPrepResult = await db.rawQuery(
+        "SELECT AVG(estimated_time) as avg_time FROM kot",
+      );
       final avgTimeVal = avgPrepResult.first['avg_time'] as num?;
       _avgPrepTime = avgTimeVal?.toDouble() ?? 12.5;
 
@@ -127,7 +136,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
         GROUP BY payment_method
       ''');
       _paymentMethods = List<Map<String, dynamic>>.from(paymentResult);
-
     } catch (e) {
       print('Error loading database analytics: $e');
     } finally {
@@ -141,7 +149,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Scaffold(
-        body: Center(child: CircularProgressIndicator(color: AppColors.primary)),
+        body: Center(
+          child: CircularProgressIndicator(color: AppColors.primary),
+        ),
       );
     }
 
@@ -149,7 +159,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Reports & Analytics', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Reports & Analytics',
+          style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -.3),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -169,9 +182,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
               icon: const Icon(Icons.download),
               label: const Text('Export Report'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
+                backgroundColor: AppColors.orange,
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
             ),
           ],
@@ -181,14 +197,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
           controller: _tabController,
           isScrollable: true,
           tabAlignment: TabAlignment.start,
-          labelColor: AppColors.primary,
-          unselectedLabelColor: Colors.grey,
-          indicatorColor: AppColors.primary,
+          labelColor: AppColors.orange,
+          unselectedLabelColor: AppColors.muted,
+          indicatorColor: AppColors.orange,
           tabs: const [
             Tab(icon: Icon(Icons.dashboard_outlined), text: 'Overview'),
             Tab(icon: Icon(Icons.restaurant_menu), text: 'Product Sales'),
             Tab(icon: Icon(Icons.kitchen_outlined), text: 'Kitchen Speed'),
-            Tab(icon: Icon(Icons.inventory_2_outlined), text: 'Inventory Warnings'),
+            Tab(
+              icon: Icon(Icons.inventory_2_outlined),
+              text: 'Inventory Warnings',
+            ),
           ],
         ),
       ),
@@ -209,7 +228,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
     final isMobile = MediaQuery.of(context).size.width < 600;
 
     return SingleChildScrollView(
-      padding: EdgeInsets.all(isMobile ? 12 : 24),
+      padding: EdgeInsets.all(isMobile ? 14 : 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -230,7 +249,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
                     title: 'Total Revenue',
                     value: '₹${_totalSales.toStringAsFixed(2)}',
                     icon: Icons.currency_rupee,
-                    color: Colors.green,
+                    color: AppColors.orange,
                     width: cardWidth,
                   ),
                   _buildStatCard(
@@ -251,7 +270,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
                     title: 'Avg Prep Estimation',
                     value: '${_avgPrepTime.toStringAsFixed(1)} min',
                     icon: Icons.timer_outlined,
-                    color: Colors.blue,
+                    color: const Color(0xFF64747D),
                     width: cardWidth,
                   ),
                 ],
@@ -303,17 +322,25 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: AppColors.line),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 8, offset: const Offset(0, 4)),
+          BoxShadow(
+            color: const Color(0xFF202326).withValues(alpha: .035),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
         ],
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            backgroundColor: color.withOpacity(0.1),
-            radius: isCompact ? 18 : 26,
-            child: Icon(icon, color: color, size: isCompact ? 20 : 28),
+          Container(
+            width: isCompact ? 38 : 50,
+            height: isCompact ? 38 : 50,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: .10),
+              borderRadius: BorderRadius.circular(isCompact ? 12 : 15),
+            ),
+            child: Icon(icon, color: color, size: isCompact ? 20 : 25),
           ),
           SizedBox(width: isCompact ? 8 : 16),
           Expanded(
@@ -361,7 +388,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: Colors.grey.shade200),
+        side: const BorderSide(color: AppColors.line),
       ),
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -370,13 +397,22 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
           children: [
             const Text(
               'Weekly Revenue Progression (Last 7 Active Days)',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: AppColors.ink,
+              ),
             ),
             const SizedBox(height: 24),
             _salesByDate.isEmpty
                 ? const SizedBox(
                     height: 200,
-                    child: Center(child: Text('No sales records registered yet.', style: TextStyle(color: Colors.grey))),
+                    child: Center(
+                      child: Text(
+                        'No sales records registered yet.',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    ),
                   )
                 : SizedBox(
                     height: 220,
@@ -385,7 +421,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: _salesByDate.reversed.map((d) {
                         final dateStr = d['date'] as String? ?? 'N/A';
-                        final parsedDate = DateTime.tryParse(dateStr) ?? DateTime.now();
+                        final parsedDate =
+                            DateTime.tryParse(dateStr) ?? DateTime.now();
                         final total = d['total'] as num? ?? 0.0;
                         final count = d['count'] as int? ?? 0;
                         final percentage = total / maxAmount;
@@ -394,28 +431,66 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.end,
                             children: [
-                              Text('₹${total.toStringAsFixed(0)}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                              Text(
+                                '₹${total.toStringAsFixed(0)}',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                               const SizedBox(height: 8),
-                              Container(
-                                height: max(10, 150 * percentage),
-                                width: 32,
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    colors: [AppColors.primaryMaterialColor[300]!, AppColors.primaryMaterialColor[600]!],
-                                    begin: Alignment.bottomCenter,
-                                    end: Alignment.topCenter,
+                              Tooltip(
+                                message:
+                                    '${count} bills · ₹${total.toStringAsFixed(0)}',
+                                child: TweenAnimationBuilder<double>(
+                                  tween: Tween<double>(
+                                    begin: 0,
+                                    end: max(10, 150 * percentage),
                                   ),
-                                  borderRadius: BorderRadius.circular(6),
+                                  duration: const Duration(milliseconds: 650),
+                                  curve: Curves.easeOutCubic,
+                                  builder: (context, barHeight, child) =>
+                                      Container(
+                                        height: barHeight,
+                                        width: 30,
+                                        decoration: BoxDecoration(
+                                          gradient: const LinearGradient(
+                                            colors: [
+                                              Color(0xFFF3A078),
+                                              AppColors.orange,
+                                            ],
+                                            begin: Alignment.bottomCenter,
+                                            end: Alignment.topCenter,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                          boxShadow: const [
+                                            BoxShadow(
+                                              color: Color(0x22E56A2F),
+                                              blurRadius: 10,
+                                              offset: Offset(0, 4),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
                                 ),
                               ),
                               const SizedBox(height: 8),
                               Text(
                                 DateFormat('dd MMM').format(parsedDate),
-                                style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold),
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                               Text(
                                 '$count bills',
-                                style: const TextStyle(fontSize: 9, color: Colors.blueGrey),
+                                style: const TextStyle(
+                                  fontSize: 9,
+                                  color: Colors.blueGrey,
+                                ),
                               ),
                             ],
                           ),
@@ -430,13 +505,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
   }
 
   Widget _buildPaymentMethodsCard() {
-    double totalPaidAmt = _paymentMethods.fold(0.0, (sum, item) => sum + (item['total'] as num? ?? 0.0));
+    double totalPaidAmt = _paymentMethods.fold(
+      0.0,
+      (sum, item) => sum + (item['total'] as num? ?? 0.0),
+    );
 
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: Colors.grey.shade200),
+        side: const BorderSide(color: AppColors.line),
       ),
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -451,14 +529,21 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
             _paymentMethods.isEmpty
                 ? const SizedBox(
                     height: 180,
-                    child: Center(child: Text('No payment logs.', style: TextStyle(color: Colors.grey))),
+                    child: Center(
+                      child: Text(
+                        'No payment logs.',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    ),
                   )
                 : Column(
                     children: _paymentMethods.map((mode) {
                       final name = mode['payment_method'] as String? ?? 'Other';
                       final count = mode['count'] as int? ?? 0;
                       final total = mode['total'] as num? ?? 0.0;
-                      final percent = totalPaidAmt > 0 ? (total / totalPaidAmt) * 100 : 0.0;
+                      final percent = totalPaidAmt > 0
+                          ? (total / totalPaidAmt) * 100
+                          : 0.0;
 
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 16.0),
@@ -468,8 +553,15 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('$name ($count bills)', style: const TextStyle(fontWeight: FontWeight.w600)),
-                                Text('₹${total.toStringAsFixed(2)} (${percent.toStringAsFixed(1)}%)'),
+                                Text(
+                                  '$name ($count bills)',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                Text(
+                                  '₹${total.toStringAsFixed(2)} (${percent.toStringAsFixed(1)}%)',
+                                ),
                               ],
                             ),
                             const SizedBox(height: 6),
@@ -480,7 +572,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
                                 minHeight: 8,
                                 color: name.toLowerCase() == 'cash'
                                     ? Colors.green
-                                    : (name.toLowerCase() == 'upi' ? Colors.blue : Colors.orange),
+                                    : (name.toLowerCase() == 'upi'
+                                          ? Colors.blue
+                                          : Colors.orange),
                                 backgroundColor: Colors.grey.shade100,
                               ),
                             ),
@@ -497,7 +591,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
 
   // --- TAB 2: PRODUCT SALES TAB ---
   Widget _buildProductSalesTab() {
-    double totalRevenue = _topProducts.fold(0.0, (sum, item) => sum + (item['revenue'] as num? ?? 0.0));
+    double totalRevenue = _topProducts.fold(
+      0.0,
+      (sum, item) => sum + (item['revenue'] as num? ?? 0.0),
+    );
 
     return Padding(
       padding: const EdgeInsets.all(24),
@@ -561,21 +658,44 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
                       final qty = p['qty'] as num? ?? 0;
                       final rev = p['revenue'] as num? ?? 0.0;
                       final category = p['category'] as String? ?? 'General';
-                      final percent = totalRevenue > 0 ? (rev / totalRevenue) * 100 : 0.0;
+                      final percent = totalRevenue > 0
+                          ? (rev / totalRevenue) * 100
+                          : 0.0;
 
                       return ListTile(
                         leading: CircleAvatar(
                           backgroundColor: AppColors.primaryLight,
-                          child: Text('${index + 1}', style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold)),
+                          child: Text(
+                            '${index + 1}',
+                            style: const TextStyle(
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
-                        title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        title: Text(
+                          name,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
                         subtitle: Text('Category: $category | Qty Sold: $qty'),
                         trailing: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Text('₹${rev.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary)),
-                            Text('${percent.toStringAsFixed(1)}% share', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                            Text(
+                              '₹${rev.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                            Text(
+                              '${percent.toStringAsFixed(1)}% share',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey,
+                              ),
+                            ),
                           ],
                         ),
                       );
@@ -588,7 +708,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
   }
 
   Widget _buildCategoryDistributionCard() {
-    double totalCatRevenue = _categoryDistribution.fold(0.0, (sum, item) => sum + (item['total'] as num? ?? 0.0));
+    double totalCatRevenue = _categoryDistribution.fold(
+      0.0,
+      (sum, item) => sum + (item['total'] as num? ?? 0.0),
+    );
 
     return Card(
       elevation: 0,
@@ -615,7 +738,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
                     children: _categoryDistribution.map((cat) {
                       final name = cat['category'] as String? ?? 'General';
                       final total = cat['total'] as num? ?? 0.0;
-                      final percent = totalCatRevenue > 0 ? (total / totalCatRevenue) * 100 : 0.0;
+                      final percent = totalCatRevenue > 0
+                          ? (total / totalCatRevenue) * 100
+                          : 0.0;
 
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 16.0),
@@ -623,7 +748,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
                           children: [
                             Expanded(
                               flex: 3,
-                              child: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                              child: Text(
+                                name,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                             ),
                             Expanded(
                               flex: 5,
@@ -642,7 +772,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
                               flex: 3,
                               child: Text(
                                 '₹${total.toStringAsFixed(0)} (${percent.toStringAsFixed(0)}%)',
-                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
                                 textAlign: TextAlign.right,
                               ),
                             ),
@@ -673,7 +806,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
               ? const Card(
                   child: Padding(
                     padding: EdgeInsets.all(32.0),
-                    child: Center(child: Text('No chef performance registered. Ensure chef name details are set on KOT actions.')),
+                    child: Center(
+                      child: Text(
+                        'No chef performance registered. Ensure chef name details are set on KOT actions.',
+                      ),
+                    ),
                   ),
                 )
               : GridView.builder(
@@ -707,8 +844,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
                               backgroundColor: AppColors.primary,
                               radius: 24,
                               child: Text(
-                                name.substring(0, min(name.length, 2)).toUpperCase(),
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                name
+                                    .substring(0, min(name.length, 2))
+                                    .toUpperCase(),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ),
                             const SizedBox(width: 16),
@@ -717,10 +859,28 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                                  Text(
+                                    name,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15,
+                                    ),
+                                  ),
                                   const SizedBox(height: 4),
-                                  Text('KOTs Finished: $count', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                                  Text('Avg Speed: ${avgEst.toStringAsFixed(1)} min', style: const TextStyle(fontSize: 12, color: Colors.blueGrey)),
+                                  Text(
+                                    'KOTs Finished: $count',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                  Text(
+                                    'Avg Speed: ${avgEst.toStringAsFixed(1)} min',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.blueGrey,
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
@@ -751,14 +911,21 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
               ),
               if (_lowStockIngredients.isNotEmpty)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.red.shade50,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
                     '${_lowStockIngredients.length} ingredients running low',
-                    style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.bold, fontSize: 12),
+                    style: TextStyle(
+                      color: Colors.red.shade700,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
             ],
@@ -770,10 +937,23 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.check_circle_outline, size: 64, color: Colors.green),
+                        Icon(
+                          Icons.check_circle_outline,
+                          size: 64,
+                          color: Colors.green,
+                        ),
                         SizedBox(height: 16),
-                        Text('All stocks are within optimal levels!', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                        Text('No items are currently below safety threshold.', style: TextStyle(color: Colors.grey)),
+                        Text(
+                          'All stocks are within optimal levels!',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                        Text(
+                          'No items are currently below safety threshold.',
+                          style: TextStyle(color: Colors.grey),
+                        ),
                       ],
                     ),
                   )
@@ -795,16 +975,35 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
                         child: ListTile(
                           leading: CircleAvatar(
                             backgroundColor: Colors.red.shade50,
-                            child: const Icon(Icons.warning_amber_rounded, color: Colors.red),
+                            child: const Icon(
+                              Icons.warning_amber_rounded,
+                              color: Colors.red,
+                            ),
                           ),
-                          title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                          title: Text(
+                            name,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
                           subtitle: Text('Threshold Status: Depleted'),
                           trailing: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
-                              Text('$stock $unit', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.red.shade700)),
-                              const Text('Low Stock Alert', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                              Text(
+                                '$stock $unit',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.red.shade700,
+                                ),
+                              ),
+                              const Text(
+                                'Low Stock Alert',
+                                style: TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 11,
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -841,17 +1040,21 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProv
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-
             },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange,
+              foregroundColor: Colors.white,
+            ),
             child: const Text('GST Tax Audit'),
           ),
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-
             },
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+            ),
             child: const Text('Sales Statement (PDF)'),
           ),
         ],
