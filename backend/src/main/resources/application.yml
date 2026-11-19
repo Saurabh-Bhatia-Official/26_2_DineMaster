@@ -3,7 +3,7 @@ server:
 
 dinemaster:
   guest:
-    menu-base-url: ${GUEST_MENU_BASE_URL:/menu}
+    menu-base-url: ${GUEST_MENU_BASE_URL:/#/guest-menu}
     allowed-origin: ${GUEST_ALLOWED_ORIGIN:}
 
 spring:

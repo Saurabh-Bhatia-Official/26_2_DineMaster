@@ -29,7 +29,7 @@ public class RolePermissionSeeder implements ApplicationRunner {
     @Transactional
     public void run(ApplicationArguments args) {
         Integer seeded = jdbc.queryForObject("select count(*) from app_seed_state where seed_key = ?",
-                Integer.class, "default-role-permissions-v3");
+                Integer.class, "default-role-permissions-v5");
         if (seeded != null && seeded > 0) return;
         for (String roleCode : Set.of("SUPER_ADMIN", "OWNER", "MANAGER", "CASHIER", "WAITER", "CHEF", "INVENTORY_MANAGER", "STAFF")) {
             Role role = roles.findByCodeAndTenantIdIsNullAndActiveTrue(roleCode)
@@ -42,6 +42,6 @@ public class RolePermissionSeeder implements ApplicationRunner {
             role.setPermissions(grants);
             roles.save(role);
         }
-        jdbc.update("insert into app_seed_state (seed_key) values (?)", "default-role-permissions-v3");
+        jdbc.update("insert into app_seed_state (seed_key) values (?)", "default-role-permissions-v5");
     }
 }

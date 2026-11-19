@@ -1,4 +1,5 @@
 
+import 'dart:convert';
 import 'package:dine_master/core/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -8,6 +9,7 @@ import '../core/api/api_mode.dart';
 import '../core/database/database_helper.dart';
 import '../repositories/restaurant_repository.dart';
 import '../repositories/user_repository.dart';
+import '../services/backend_api_client.dart';
 
 class DashboardScreen extends StatefulWidget {
   final Widget child;
@@ -22,22 +24,107 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Map<String, dynamic>> _restaurants = [];
   int? _selectedRestaurantId;
   String _username = 'User';
+  String _role = 'STAFF';
+  Set<String> _permissions = {};
+  bool _accessLoaded = false;
 
   @override
   void initState() {
     super.initState();
     _loadRestaurants();
-    _loadUsername();
+    _loadUserAccess();
   }
 
-  Future<void> _loadUsername() async {
+  Future<void> _loadUserAccess() async {
     final prefs = await SharedPreferences.getInstance();
+    var role = RoleNames.canonical(prefs.getString('role') ?? 'STAFF');
+    var permissions = <String>{};
+    var permissionsResolved = false;
+    final saved = prefs.getString('permissions');
+    if (saved != null) {
+      try {
+        permissions = (jsonDecode(saved) as List)
+            .map((permission) => permission.toString())
+            .toSet();
+        permissionsResolved = true;
+      } catch (_) {
+        permissions = {};
+      }
+    }
+    final backendMode = await ApiMode.useBackendApi();
+    if (!permissionsResolved && backendMode) {
+      try {
+        final response = await const BackendApiClient().getJson(
+          '/api/v1/auth/me/permissions',
+        );
+        if (response is Map && response['permissions'] is List) {
+          permissions = (response['permissions'] as List)
+              .map((permission) => permission.toString())
+              .toSet();
+          await prefs.setString('permissions', jsonEncode(permissions.toList()));
+          permissionsResolved = true;
+        }
+      } catch (e) {
+        debugPrint('Could not load role permissions: $e');
+      }
+    }
+    if (!permissionsResolved && !backendMode) {
+      permissions = _defaultPermissions(role);
+    }
 
     if (!mounted) return;
 
     setState(() {
       _username = prefs.getString('username') ?? 'User';
+      _role = role;
+      _permissions = permissions;
+      _accessLoaded = true;
     });
+  }
+
+  Set<String> _defaultPermissions(String role) {
+    switch (RoleNames.canonical(role)) {
+      case 'OWNER':
+      case 'MANAGER':
+        return {
+          'dashboard:view', 'table:view', 'order:create', 'order:view',
+          'kot:view', 'bill:generate', 'menu:manage', 'menu:view',
+          'inventory:view', 'expense:view', 'customer:view', 'user:view',
+          'branch:view', 'settings:view', 'report:sales', 'report:kitchen',
+          'report:inventory', 'report:finance',
+        };
+      case 'CASHIER':
+        return {
+          'table:view', 'order:create', 'order:view', 'kot:view',
+          'bill:generate', 'menu:view', 'customer:view', 'report:sales',
+        };
+      case 'WAITER':
+        return {
+          'table:view',
+          'order:create',
+          'order:view',
+          'kot:view',
+          'customer:view',
+        };
+      case 'CHEF':
+        return {
+          'dashboard:view',
+          'kot:view',
+          'order:view',
+          'menu:view',
+          'inventory:view',
+          'report:kitchen',
+        };
+      case 'INVENTORY_MANAGER':
+        return {'dashboard:view', 'inventory:view', 'menu:view', 'report:inventory', 'branch:view'};
+      default:
+        return {};
+    }
+  }
+
+  bool _canOpen(Map<String, dynamic> item) {
+    final required = item['permissions'] as List<String>;
+    return required.any(_permissions.contains);
   }
 
   Future<void> _loadRestaurants() async {
@@ -82,6 +169,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       'label': 'Dashboard',
       'route': '/dashboard',
       'category': 'Overview',
+      'permissions': <String>['dashboard:view'],
     },
     {
       'icon': Icons.table_bar_outlined,
@@ -89,6 +177,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       'label': 'Tables',
       'route': '/dashboard/tables',
       'category': 'Operations',
+      'permissions': <String>['table:view'],
     },
     {
       'icon': Icons.assignment_turned_in_outlined,
@@ -96,6 +185,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       'label': 'Waiter Ordering',
       'route': '/dashboard/waiter_order',
       'category': 'Operations',
+      'permissions': <String>['order:create'],
     },
     {
       'icon': Icons.kitchen_outlined,
@@ -103,6 +193,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       'label': 'Kitchen KOT',
       'route': '/dashboard/kitchen',
       'category': 'Operations',
+      'permissions': <String>['kot:view'],
     },
     {
       'icon': Icons.track_changes,
@@ -110,6 +201,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       'label': 'Live Tracking',
       'route': '/dashboard/live_tracking',
       'category': 'Operations',
+      'permissions': <String>['order:view'],
     },
     {
       'icon': Icons.point_of_sale_outlined,
@@ -117,6 +209,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       'label': 'POS Billing',
       'route': '/dashboard/pos',
       'category': 'Billing',
+      'permissions': <String>['bill:generate'],
     },
     {
       'icon': Icons.history_outlined,
@@ -124,6 +217,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       'label': 'Order History',
       'route': '/dashboard/orders',
       'category': 'Billing',
+      'permissions': <String>['order:view'],
     },
     {
       'icon': Icons.restaurant_menu_outlined,
@@ -131,6 +225,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       'label': 'Food Products',
       'route': '/dashboard/products_manage',
       'category': 'Management',
+      'permissions': <String>['menu:manage'],
     },
     {
       'icon': Icons.menu_book_outlined,
@@ -138,6 +233,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       'label': 'Menu Card',
       'route': '/dashboard/menu_card',
       'category': 'Management',
+      'permissions': <String>['menu:view'],
     },
     {
       'icon': Icons.inventory_2_outlined,
@@ -145,6 +241,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       'label': 'Inventory',
       'route': '/dashboard/inventory',
       'category': 'Management',
+      'permissions': <String>['inventory:view'],
     },
     {
       'icon': Icons.account_balance_outlined,
@@ -152,6 +249,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       'label': 'Accounts',
       'route': '/dashboard/accounts',
       'category': 'Management',
+      'permissions': <String>['expense:view', 'report:finance'],
     },
     {
       'icon': Icons.people_alt_outlined,
@@ -159,6 +257,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       'label': 'Customers',
       'route': '/dashboard/customers',
       'category': 'Management',
+      'permissions': <String>['customer:view'],
     },
     {
       'icon': Icons.analytics_outlined,
@@ -166,6 +265,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       'label': 'Analytics',
       'route': '/dashboard/analytics',
       'category': 'Admin',
+      'permissions': <String>['report:sales', 'report:kitchen', 'report:inventory', 'report:finance'],
     },
     {
       'icon': Icons.people_outline,
@@ -173,6 +273,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       'label': 'Staff Management',
       'route': '/dashboard/user_management',
       'category': 'Admin',
+      'permissions': <String>['user:view'],
     },
     {
       'icon': Icons.restaurant_outlined,
@@ -180,6 +281,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       'label': 'Restaurants',
       'route': '/dashboard/restaurants',
       'category': 'Admin',
+      'permissions': <String>['branch:view'],
     },
     {
       'icon': Icons.settings_outlined,
@@ -187,10 +289,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
       'label': 'Settings',
       'route': '/dashboard/settings',
       'category': 'Admin',
+      'permissions': <String>['settings:view'],
     },
   ];
 
   Widget _buildSidebar(BuildContext context, int activeIndex) {
+    final visibleNavItems = _navItems.where(_canOpen).toList();
     return Container(
       width: 260,
       decoration: const BoxDecoration(
@@ -240,7 +344,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Expanded(
             child: ListView(
               padding: const EdgeInsets.symmetric(vertical: 12),
-              children: _buildNavSections(context, activeIndex),
+              children: _buildNavSections(
+                context,
+                activeIndex,
+                visibleNavItems,
+              ),
             ),
           ),
           const Divider(color: Colors.white12, height: 1),
@@ -249,17 +357,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
               backgroundColor: Colors.white,
               child: Icon(Icons.person, color: AppColors.primary),
             ),
-            title: const Text(
-              'Owner Account',
+            title: Text(
+              _role.replaceAll('_', ' '),
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
                 fontSize: 13,
               ),
             ),
-            subtitle: const Text(
-              'System Admin',
-              style: TextStyle(color: Colors.white70, fontSize: 11),
+            subtitle: Text(
+              _username,
+              style: const TextStyle(color: Colors.white70, fontSize: 11),
             ),
             trailing: IconButton(
               icon: const Icon(
@@ -286,14 +394,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     final isDesktop = MediaQuery.of(context).size.width >= 1024;
     final String location = GoRouterState.of(context).uri.path;
+    final visibleNavItems = _navItems.where(_canOpen).toList();
 
-    int activeIndex = _navItems.indexWhere((item) => item['route'] == location);
+    int activeIndex = visibleNavItems.indexWhere(
+      (item) => item['route'] == location,
+    );
 
     if (activeIndex == -1) {
       int bestMatchLength = 0;
 
-      for (int i = 0; i < _navItems.length; i++) {
-        final route = _navItems[i]['route'] as String;
+      for (int i = 0; i < visibleNavItems.length; i++) {
+        final route = visibleNavItems[i]['route'] as String;
 
         if (location.startsWith(route) && route.length > bestMatchLength) {
           bestMatchLength = route.length;
@@ -302,7 +413,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     }
 
-    if (activeIndex == -1) activeIndex = 0;
+    if (activeIndex == -1 && visibleNavItems.isNotEmpty) {
+      activeIndex = 0;
+      if (_accessLoaded && location.startsWith('/dashboard')) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) context.go(visibleNavItems.first['route'] as String);
+        });
+      }
+    }
 
     return Scaffold(
       drawer: !isDesktop
@@ -329,7 +447,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         )
                       : null,
                   title: Text(
-                    _navItems[activeIndex]['label'] as String,
+                    visibleNavItems.isEmpty || activeIndex < 0
+                        ? 'Dine Master'
+                        : visibleNavItems[activeIndex]['label'] as String,
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                   actions: [
@@ -400,7 +520,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     color: const Color(0xFFF8F9FA),
                     child: KeyedSubtree(
                       key: ValueKey(_selectedRestaurantId),
-                      child: widget.child,
+                      child: !_accessLoaded
+                          ? const Center(child: CircularProgressIndicator())
+                          : visibleNavItems.isEmpty
+                          ? const Center(
+                              child: Text(
+                                'Your account does not have access to any screens.',
+                              ),
+                            )
+                          : widget.child,
                     ),
                   ),
                 ),
@@ -412,12 +540,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  List<Widget> _buildNavSections(BuildContext context, int activeIndex) {
+  List<Widget> _buildNavSections(
+    BuildContext context,
+    int activeIndex,
+    List<Map<String, dynamic>> visibleNavItems,
+  ) {
     final isDesktop = MediaQuery.of(context).size.width >= 1024;
     final Map<String, List<int>> categories = {};
 
-    for (int i = 0; i < _navItems.length; i++) {
-      final cat = _navItems[i]['category'] ?? 'General';
+    for (int i = 0; i < visibleNavItems.length; i++) {
+      final cat = visibleNavItems[i]['category'] ?? 'General';
       categories.putIfAbsent(cat as String, () => []).add(i);
     }
 
@@ -440,7 +572,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
 
       for (final index in indices) {
-        final item = _navItems[index];
+        final item = visibleNavItems[index];
         final isSelected = activeIndex == index;
 
         widgets.add(

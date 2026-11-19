@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'dart:convert';
 import '../core/api/api_mode.dart';
 import '../core/database/database_helper.dart';
 import '../models/user_model.dart';
@@ -35,6 +36,15 @@ class UserRepository {
         );
         await prefs.setString('username', user.username);
         await prefs.setString('role', user.role);
+        final rawPermissions = (response['user'] as Map)['permissions'];
+        if (rawPermissions is List) {
+          await prefs.setString(
+            'permissions',
+            jsonEncode(rawPermissions.map((value) => value.toString()).toList()),
+          );
+        } else {
+          await prefs.remove('permissions');
+        }
         return user;
       } on BackendApiException {
         return null;
@@ -48,7 +58,12 @@ class UserRepository {
       where: 'username = ? AND password = ? AND is_active = 1',
       whereArgs: [username, hashedPassword],
     );
-    return maps.isEmpty ? null : UserModel.fromMap(maps.first);
+    if (maps.isEmpty) return null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('username', maps.first['username']?.toString() ?? '');
+    await prefs.setString('role', maps.first['role']?.toString() ?? '');
+    await prefs.remove('permissions');
+    return UserModel.fromMap(maps.first);
   }
 
   Future<List<UserModel>> getUsers() async {
@@ -57,13 +72,18 @@ class UserRepository {
       var page = 0;
       while (true) {
         final response = await _apiClient.getJson(
-          '/api/v1/users?page=$page&size=100&sort=name,asc',
+          '/api/v1/admin/staff?page=$page&size=20&sort=name,asc',
         );
         users.addAll(_parseUsers(response));
+        final totalPages = response is Map
+            ? response['totalPages'] as num?
+            : null;
         if (response is! Map ||
             response['last'] == true ||
-            (response['content'] is List &&
-                (response['content'] as List).length < 100)) {
+            (totalPages != null && page + 1 >= totalPages) ||
+            (totalPages == null &&
+                response['content'] is List &&
+                (response['content'] as List).length < 20)) {
           return users;
         }
         page++;
@@ -192,6 +212,7 @@ class UserRepository {
     await prefs.remove('flutter.token');
     await prefs.remove('username');
     await prefs.remove('role');
+    await prefs.remove('permissions');
     await prefs.remove('remember_me');
   }
 
@@ -229,3 +250,4 @@ class UserRepository {
     if (user.branchIds.isNotEmpty) 'branchIds': user.branchIds,
   };
 }
+

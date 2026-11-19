@@ -31,7 +31,20 @@ public record OrderResponse(
         String orderTaker,
         String deliveredBy,
         OffsetDateTime deliveryTimestamp,
-        Integer guestCount) {
+        Integer guestCount,
+        BigDecimal subtotal,
+        BigDecimal taxAmount,
+        BigDecimal roundOff,
+        String discountType,
+        String discountRemark,
+        boolean parked,
+        String orderNo,
+        int version,
+        OffsetDateTime confirmedAt,
+        OffsetDateTime completedAt,
+        String cancelReason,
+        String voidReason,
+        Long createdById) {
 
     public static OrderResponse from(Order order) {
         return new OrderResponse(
@@ -54,6 +67,14 @@ public record OrderResponse(
                 order.getOrderTaker(),
                 order.getDeliveredBy(),
                 order.getDeliveryTimestamp(),
-                order.getGuestCount());
+                order.getGuestCount(),
+                order.getSubtotal(),
+                order.getTaxAmount(),
+                order.getRoundOff(),
+                order.getDiscountType(),
+                order.getDiscountRemark(),
+                order.isParked(), order.getOrderNo(), order.getVersion(), order.getConfirmedAt(),
+                order.getCompletedAt(), order.getCancelReason(), order.getVoidReason(),
+                order.getCreatedBy() == null ? null : order.getCreatedBy().getId());
     }
 }

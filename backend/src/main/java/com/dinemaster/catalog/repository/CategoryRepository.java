@@ -18,10 +18,12 @@ public interface CategoryRepository
     boolean existsByName(String name);
 
     List<Category> findAllByTenantId(Long tenantId);
+    List<Category> findAllByTenantIdAndDeletedAtIsNullOrderBySortOrderAscIdAsc(Long tenantId);
 
     Optional<Category> findByIdAndTenantId(Long id, Long tenantId);
 
     boolean existsByNameIgnoreCaseAndTenantId(String name, Long tenantId);
 
     Optional<Category> findFirstByNameIgnoreCaseAndTenantId(String name, Long tenantId);
+    boolean existsByNameIgnoreCaseAndTenantIdAndIdNot(String name, Long tenantId, Long id);
 }

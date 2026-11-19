@@ -2,14 +2,18 @@ package com.dinemaster.kitchen.controller;
 
 
 
-import com.dinemaster.kitchen.dto.CreateKotRequest;
 import com.dinemaster.kitchen.entity.Kot;
 import com.dinemaster.kitchen.repository.KotRepository;
+import com.dinemaster.kitchen.service.KitchenService;
+import com.dinemaster.kitchen.service.KitchenEventService;
+import com.dinemaster.kitchen.service.KotQueryService;
+import com.dinemaster.kitchen.dto.KitchenItemStatusRequest;
+import com.dinemaster.kitchen.dto.KitchenPriorityRequest;
+import com.dinemaster.kitchen.dto.KitchenDelayRequest;
+import com.dinemaster.kitchen.dto.AssignChefRequest;
 import com.dinemaster.orders.entity.Order;
 import com.dinemaster.orders.entity.OrderItem;
-import com.dinemaster.orders.repository.OrderItemRepository;
 import com.dinemaster.orders.repository.OrderRepository;
-import com.dinemaster.restaurant.entity.Restaurant;
 import com.dinemaster.security.BranchScopeService;
 
 import jakarta.validation.Valid;
@@ -20,7 +24,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.context.annotation.Lazy;
-import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,30 +31,98 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/kitchen-tickets")
 public class KotController {
-    private static final List<String> STATUSES = List.of(
-            "Pending", "Cooking", "Preparing", "Ready", "Served", "Completed", "Cancelled");
     private final KotRepository kotRepository;
     private final OrderRepository orderRepository;
-    private final OrderItemRepository orderItemRepository;
     private final BranchScopeService branchScope;
+    private final KitchenService kitchen;
+    private final KotQueryService queries;
+    private final KitchenEventService events;
 
     public KotController(KotRepository kotRepository, OrderRepository orderRepository,
-            OrderItemRepository orderItemRepository, @Lazy BranchScopeService branchScope) {
+            BranchScopeService branchScope,
+            KitchenService kitchen, KotQueryService queries, KitchenEventService events) {
         this.kotRepository = kotRepository;
         this.orderRepository = orderRepository;
-        this.orderItemRepository = orderItemRepository;
         this.branchScope = branchScope;
+        this.kitchen = kitchen; this.queries = queries; this.events = events;
     }
 
     @GetMapping
     @PreAuthorize("hasAuthority('kot:view')")
     public List<Map<String, Object>> listByRestaurant(@RequestParam Long restaurantId,
+            @RequestParam(required = false) String station, @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "oldest") String sort, Authentication authentication) {
+        branchScope.requireBranch(authentication, restaurantId);
+        return queries.board(restaurantId, station, status, sort, false);
+    }
+
+    @GetMapping("/history")
+    @PreAuthorize("hasAuthority('kot:view')")
+    public List<Map<String, Object>> history(@RequestParam Long restaurantId,
+            @RequestParam(required = false) String station, @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "oldest") String sort, Authentication authentication) {
+        branchScope.requireBranch(authentication, restaurantId);
+        return queries.board(restaurantId, station, status, sort, true);
+    }
+
+    @GetMapping("/events")
+    @PreAuthorize("hasAuthority('kot:view')")
+    public List<Map<String, Object>> events(@RequestParam Long restaurantId, @RequestParam(defaultValue = "0") Long afterSeq,
+            @RequestParam(required = false) String station, @RequestParam(defaultValue = "200") int limit,
             Authentication authentication) {
         branchScope.requireBranch(authentication, restaurantId);
-        return kotRepository.findByOrder_Restaurant_IdOrderByCreatedAtDesc(restaurantId)
-                .stream()
-                .map(this::toResponse)
-                .toList();
+        return events.replay(restaurantId, afterSeq, station, limit);
+    }
+
+    @PutMapping("/{kotId}/items/{itemId}/status")
+    @PreAuthorize("hasAuthority('kot:update_status')")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> updateItemStatus(@PathVariable Long kotId, @PathVariable Long itemId,
+            @Valid @RequestBody KitchenItemStatusRequest request, Authentication authentication) {
+        Kot kot = kotRepository.findById(kotId).orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(HttpStatus.NOT_FOUND, "Kitchen ticket not found"));
+        branchScope.requireBranch(authentication, kot.getOrder().getRestaurant().getId());
+        OrderItem changed = kitchen.changeItemStatus(kotId, itemId, request.status(), request.reason(), branchScope.requireUser(authentication));
+        return ResponseEntity.ok(Map.of("kotId", kotId, "itemId", itemId, "status", changed.getStatus(),
+                "acceptedAt", changed.getAcceptedAt() == null ? "" : changed.getAcceptedAt(),
+                "readyAt", changed.getReadyAt() == null ? "" : changed.getReadyAt()));
+    }
+
+    @PostMapping("/{kotId}/priority")
+    @PreAuthorize("hasAuthority('kot:update_status')")
+    public ResponseEntity<Void> setPriority(@PathVariable Long kotId, @Valid @RequestBody KitchenPriorityRequest request,
+            Authentication authentication) {
+        Kot kot = kotRepository.findById(kotId).orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(HttpStatus.NOT_FOUND, "Kitchen ticket not found"));
+        branchScope.requireBranch(authentication, kot.getOrder().getRestaurant().getId());
+        kitchen.setPriority(kotId, request.priority(), branchScope.requireUser(authentication));
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{kotId}/delay-reason")
+    @PreAuthorize("hasAuthority('kot:update_status')")
+    public ResponseEntity<Void> delayReason(@PathVariable Long kotId, @Valid @RequestBody KitchenDelayRequest request,
+            Authentication authentication) {
+        Kot kot = kotRepository.findById(kotId).orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(HttpStatus.NOT_FOUND, "Kitchen ticket not found"));
+        branchScope.requireBranch(authentication, kot.getOrder().getRestaurant().getId());
+        kitchen.recordDelay(kotId, request.reason(), branchScope.requireUser(authentication));
+        return ResponseEntity.status(HttpStatus.CREATED).build();
+    }
+
+    @PostMapping("/{kotId}/assign-chef")
+    @PreAuthorize("hasAuthority('kot:update_status')")
+    public ResponseEntity<Void> assignChef(@PathVariable Long kotId, @Valid @RequestBody AssignChefRequest request,
+            Authentication authentication) {
+        Kot kot = kotRepository.findById(kotId).orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(HttpStatus.NOT_FOUND, "Kitchen ticket not found"));
+        branchScope.requireBranch(authentication, kot.getOrder().getRestaurant().getId());
+        kitchen.assignChef(kotId, request.chefId(), branchScope.requireUser(authentication));
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/{kotId}/delays")
+    @PreAuthorize("hasAuthority('kot:view')")
+    public List<Map<String, Object>> delayHistory(@PathVariable Long kotId, Authentication authentication) {
+        Kot kot = kotRepository.findById(kotId).orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(HttpStatus.NOT_FOUND, "Kitchen ticket not found"));
+        branchScope.requireBranch(authentication, kot.getOrder().getRestaurant().getId());
+        return kitchen.delayHistory(kotId);
     }
 
     @GetMapping("/order/{orderId}")
@@ -64,137 +135,6 @@ public class KotController {
                 .stream()
                 .map(this::toResponse)
                 .toList();
-    }
-
-    @PostMapping
-    @PreAuthorize("hasAuthority('order:create')")
-    @Transactional
-    public ResponseEntity<?> create(@Valid @RequestBody CreateKotRequest request,
-            Authentication authentication) {
-        return orderRepository.findById(request.orderId()).map(order -> {
-            branchScope.requireBranch(authentication, order.getRestaurant().getId());
-            if ("DRAFT".equalsIgnoreCase(order.getStatus())) {
-                return ResponseEntity.status(HttpStatus.CONFLICT)
-                        .body(Map.of("error", "QR draft orders must be accepted before kitchen processing"));
-            }
-            if (request.kotNumber() == null || request.kotNumber().isBlank()) {
-                var existing = kotRepository.findByOrder_IdOrderByCreatedAtAsc(order.getId())
-                        .stream()
-                        .filter(kot -> "Pending".equals(kot.getStatus())
-                                || "Cooking".equals(kot.getStatus()))
-                        .findFirst();
-                if (existing.isPresent()) {
-                    return ResponseEntity.ok(toResponse(existing.get()));
-                }
-            }
-            Kot kot = new Kot();
-            kot.setOrder(order);
-            kot.setKotNumber(request.kotNumber() == null || request.kotNumber().isBlank()
-                    ? "KOT-" + System.currentTimeMillis()
-                    : request.kotNumber().trim());
-            kot.setPriority(
-                    request.priority() == null || request.priority().isBlank() ? "Normal" : request.priority().trim());
-            if (request.estimatedTime() != null)
-                kot.setEstimatedTime(request.estimatedTime());
-            return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(kotRepository.save(kot)));
-        }).orElseGet(() -> ResponseEntity.notFound().build());
-    }
-
-    @PatchMapping("/{id}/status")
-    @PreAuthorize("hasAuthority('kot:update_status')")
-    @Transactional
-    public ResponseEntity<?> updateStatus(@PathVariable Long id, @RequestParam String value,
-            Authentication authentication) {
-        if (value == null || !STATUSES.contains(value)) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Invalid KOT status"));
-        }
-        final String normalizedValue = "Preparing".equals(value) ? "Cooking"
-                : "Completed".equals(value) ? "Served" : value;
-        return kotRepository.findById(id).map(kot -> {
-            branchScope.requireBranch(authentication, kot.getOrder().getRestaurant().getId());
-            String current = kot.getStatus();
-            boolean waiter = hasRole(authentication, "WAITER");
-            boolean chef = hasRole(authentication, "CHEF");
-            boolean manager = hasRole(authentication, "MANAGER") || hasRole(authentication, "OWNER");
-            boolean allowedTransition = switch (current) {
-                case "Pending" -> normalizedValue.equals("Cooking") || (manager && normalizedValue.equals("Cancelled"));
-                case "Cooking" -> normalizedValue.equals("Ready") || (manager && normalizedValue.equals("Cancelled"));
-                case "Ready" -> normalizedValue.equals("Served") || (manager && normalizedValue.equals("Cancelled"));
-                default -> false;
-            };
-            boolean allowedByRole = waiter
-                    ? current.equals("Ready") && normalizedValue.equals("Served")
-                    : chef
-                    ? (current.equals("Pending") && normalizedValue.equals("Cooking"))
-                            || (current.equals("Cooking") && normalizedValue.equals("Ready"))
-                            : manager;
-            if (!allowedTransition || !allowedByRole) {
-                return ResponseEntity.status(409).body(Map.of("error", "Invalid or unauthorized KOT transition"));
-            }
-            kot.setStatus(normalizedValue);
-            OffsetDateTime now = OffsetDateTime.now();
-            if ("Cooking".equals(normalizedValue))
-                kot.setStartedCookingAt(now);
-            if ("Ready".equals(normalizedValue))
-                kot.setReadyAt(now);
-            if ("Served".equals(normalizedValue))
-                kot.setServedAt(now);
-            updateOrderStatus(kot.getOrder());
-            return ResponseEntity.ok(toResponse(kotRepository.save(kot)));
-        }).orElseGet(() -> ResponseEntity.notFound().build());
-    }
-
-    private void updateOrderStatus(Order order) {
-        List<String> statuses = kotRepository.findByOrder_IdOrderByCreatedAtAsc(order.getId())
-                .stream().map(Kot::getStatus).toList();
-        if (statuses.isEmpty()) return;
-        String orderStatus = statuses.stream().allMatch("Served"::equals) ? "Served"
-                : statuses.stream().allMatch(status -> "Ready".equals(status) || "Served".equals(status))
-                        ? "Ready"
-                        : statuses.stream().anyMatch(status -> "Cooking".equals(status))
-                                ? "Preparing" : "Sent to Kitchen";
-        order.setStatus(orderStatus);
-    }
-
-    private boolean hasRole(Authentication authentication, String role) {
-        return authentication.getAuthorities().stream()
-                .anyMatch(authority -> authority.getAuthority().equals("ROLE_" + role));
-    }
-
-    @PostMapping("/{kotId}/items/{itemId}")
-    @PreAuthorize("hasAuthority('kot:update_status')")
-    @Transactional
-    public ResponseEntity<?> assignItem(@PathVariable Long kotId, @PathVariable Long itemId,
-            Authentication authentication) {
-        Kot kot = kotRepository.findById(kotId).orElse(null);
-        OrderItem item = orderItemRepository.findById(itemId).orElse(null);
-        if (kot == null || item == null)
-            return ResponseEntity.notFound().build();
-        branchScope.requireBranch(authentication, kot.getOrder().getRestaurant().getId());
-        if (!kot.getOrder().getId().equals(item.getOrder().getId())) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Item belongs to another order"));
-        }
-        int updated = orderItemRepository.assignToKot(item.getId(), kot.getOrder().getId(), kot.getId());
-        if (updated == 0) return ResponseEntity.notFound().build();
-        return ResponseEntity.ok(Map.of(
-                "itemId", item.getId(),
-                "kotId", kot.getId(),
-                "orderId", kot.getOrder().getId(),
-                "productId", item.getProduct().getId(),
-                "status", item.getStatus()));
-    }
-
-    @DeleteMapping("/{kotId}/items/{itemId}")
-    @PreAuthorize("hasAuthority('kot:update_status')")
-    @Transactional
-    public ResponseEntity<?> unassignItem(@PathVariable Long kotId, @PathVariable Long itemId) {
-        OrderItem item = orderItemRepository.findById(itemId).orElse(null);
-        if (item == null || item.getKot() == null || !item.getKot().getId().equals(kotId)) {
-            return ResponseEntity.notFound().build();
-        }
-        item.setKot(null);
-        orderItemRepository.save(item);
-        return ResponseEntity.noContent().build();
     }
 
     private Map<String, Object> toResponse(Kot kot) {

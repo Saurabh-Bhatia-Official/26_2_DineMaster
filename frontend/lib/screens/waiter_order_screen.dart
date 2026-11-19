@@ -12,6 +12,7 @@ import '../models/order_model.dart';
 import '../models/table_model.dart';
 import '../repositories/product_repository.dart';
 import '../repositories/table_repository.dart';
+import '../repositories/user_repository.dart';
 import '../services/sync_service.dart';
 import 'waiter/waiter_models.dart';
 import 'waiter/components/waiter_cart_panel.dart';
@@ -55,6 +56,8 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
   String? _selectedWaiterName;
   int? _selectedChefId;
   String? _selectedChefName;
+  String? _pendingCreateOrderKey;
+  String? _pendingConfirmOrderKey;
 
   // Order Taking States
   List<ProductModel> _products = [];
@@ -125,6 +128,23 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
           whereArgs: [restaurantId],
         );
       }
+
+      // Publish the tables immediately. Enrichment below reads local/network
+      // order and booking data; a failure there must not hide fetched tables.
+      _tableInfoList = tablesResult.map((tMap) {
+        return WaiterTableInfo(
+          table: TableModel.fromMap(tMap),
+          activeOrder: null,
+          activeBooking: null,
+          orderItemsCount: 0,
+        );
+      }).toList();
+      _sectionsList = {
+        'All',
+        ..._tableInfoList
+            .map((info) => info.table.section)
+            .where((section) => section.isNotEmpty),
+      }.toList();
 
       final List<WaiterTableInfo> enrichedTables = [];
       final Set<String> sections = {'All'};
@@ -261,18 +281,11 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
       List<Map<String, dynamic>> allUsers = [];
 
       if (kIsWeb || db is NetworkDatabase) {
-        final response = await const BackendApiClient().getJson('/api/users');
-
-        if (response is List) {
-          allUsers = response
-              .whereType<Map>()
-              .map((user) => Map<String, dynamic>.from(user))
-              .where((user) {
-                final active = user['active'] ?? user['is_active'];
-                return active == true || active == 1;
-              })
-              .toList();
-        }
+        final users = await UserRepository().getUsers();
+        allUsers = users.map((user) => user.toMap()).where((user) {
+          final active = user['is_active'] ?? user['active'];
+          return active == true || active == 1;
+        }).toList();
       } else {
         final usersResult = await db.query(
           'users',
@@ -284,12 +297,12 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
       }
 
       _chefsList = allUsers.where((user) {
-        final role = user['role']?.toString().trim().toUpperCase();
-        return role == 'CHEF' || role == 'COOK';
+        final role = RoleNames.canonical(user['role']?.toString() ?? '');
+        return role == 'CHEF';
       }).toList();
 
       _waitersList = allUsers.where((user) {
-        final role = user['role']?.toString().trim().toUpperCase();
+        final role = RoleNames.canonical(user['role']?.toString() ?? '');
         return role == 'WAITER';
       }).toList();
 
@@ -661,7 +674,16 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
         if (restaurantId == null) {
           throw StateError('A restaurant must be selected before ordering');
         }
+        if (_selectedTableId != null && _selectedWaiterId != null) {
+          await TableRepository().assignWaiter(
+            _selectedTableId!,
+            _selectedWaiterId!,
+          );
+        }
+        _pendingCreateOrderKey ??= OrderApiRepository.newIdempotencyKey();
+        _pendingConfirmOrderKey ??= OrderApiRepository.newIdempotencyKey();
         final order = await _orderApiRepository.createOrder(
+          idempotencyKey: _pendingCreateOrderKey!,
           restaurantId: restaurantId,
           tableId: _selectedTableId,
           waiterId: _selectedWaiterId,
@@ -683,11 +705,28 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
         if (order.id == null) {
           throw const FormatException('Backend did not return an order ID');
         }
-        await const BackendApiClient().postJson('/api/v1/kitchen-tickets', {
-          'orderId': order.id,
-          'priority': 'Normal',
-        });
+        await _orderApiRepository.confirmOrder(
+          order.id!,
+          idempotencyKey: _pendingConfirmOrderKey!,
+        );
+        if (_selectedChefId != null) {
+          final tickets = await const BackendApiClient().getJson(
+            '/api/v1/kitchen-tickets/order/${order.id}',
+          );
+          if (tickets is List) {
+            for (final ticket in tickets.whereType<Map>()) {
+              final kotId = (ticket['id'] as num?)?.toInt();
+              if (kotId == null) continue;
+              await const BackendApiClient().postJson(
+                '/api/v1/kitchen-tickets/$kotId/assign-chef',
+                {'chefId': _selectedChefId},
+              );
+            }
+          }
+        }
         if (!mounted) return;
+        _pendingCreateOrderKey = null;
+        _pendingConfirmOrderKey = null;
         setState(() {
           _cartItems.clear();
           _selectedTableId = null;

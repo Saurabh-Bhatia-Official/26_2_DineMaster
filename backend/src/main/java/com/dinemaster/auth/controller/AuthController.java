@@ -4,6 +4,7 @@ import com.dinemaster.auth.dto.AuthResponse;
 import com.dinemaster.auth.dto.LoginRequest;
 import com.dinemaster.auth.dto.SuperAdminLoginRequest;
 import com.dinemaster.auth.dto.PasswordChangeRequest;
+import com.dinemaster.auth.dto.PinSetupRequest;
 import com.dinemaster.auth.dto.RefreshRequest;
 import com.dinemaster.auth.dto.DeviceActivationRequest;
 import com.dinemaster.auth.dto.ActivationCodeCreateRequest;
@@ -39,6 +40,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import jakarta.servlet.http.HttpServletRequest;
 
 import java.util.Map;
@@ -57,12 +59,14 @@ public class AuthController {
     private final DeviceActivationRepository activations;
     private final RestaurantRepository branches;
     private final TenantRepository tenants;
+    private final PasswordEncoder passwordEncoder;
     private final java.security.SecureRandom secureRandom = new SecureRandom();
 
     public AuthController(AuthService authService, UserRepository users, LoginRateLimiter loginRateLimiter,
             RolePermissionService rolePermissions, AuthDeviceRepository devices,
             RefreshTokenRepository refreshTokens, UserBranchRepository userBranches, JwtService jwtService,
-            DeviceActivationRepository activations, RestaurantRepository branches, TenantRepository tenants) {
+            DeviceActivationRepository activations, RestaurantRepository branches, TenantRepository tenants,
+            PasswordEncoder passwordEncoder) {
         this.authService = authService;
         this.users = users;
         this.loginRateLimiter = loginRateLimiter;
@@ -74,6 +78,7 @@ public class AuthController {
         this.activations = activations;
         this.branches = branches;
         this.tenants = tenants;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @PostMapping("/devices/activation-codes")
@@ -217,6 +222,21 @@ public class AuthController {
                     failure.getStatus() == 401 ? "Current password is incorrect." : failure.getMessage(),
                     null, servletRequest);
         }
+    }
+
+    @PostMapping("/pin")
+    @PreAuthorize("isAuthenticated()")
+    @Transactional
+    public ResponseEntity<?> setPin(Authentication authentication, @Valid @RequestBody PinSetupRequest request) {
+        User user = currentUser(authentication);
+        if (user == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+        if (!passwordEncoder.matches(request.currentPassword(), user.getPassword()))
+            return ResponseEntity.status(401).body(Map.of("error", "Current password is incorrect"));
+        user.setPinHash(passwordEncoder.encode(request.pin()));
+        user.setPinFailedAttempts((short) 0);
+        user.setPinLockedUntil(null);
+        users.save(user);
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/me/permissions")

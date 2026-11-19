@@ -1,6 +1,9 @@
-import 'package:flutter/material.dart';
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:dine_master/core/theme/app_colors.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../core/database/database_helper.dart';
 import '../repositories/product_repository.dart';
 import '../models/product_model.dart';
@@ -33,15 +36,49 @@ class _MenuCardScreenState extends State<MenuCardScreen> {
       final List<ProductModel> products;
       if (kIsWeb) {
         final restaurantId = DatabaseHelper.currentRestaurantId ?? 1;
-        final response = await const BackendApiClient().getJson(
-          '/api/v1/products?restaurantId=$restaurantId',
-        );
-        if (response is! List) {
-          throw const FormatException('Unexpected products response');
+        final prefs = await SharedPreferences.getInstance();
+        final cacheKey = 'branch_menu_$restaurantId';
+        final cachedJson = prefs.getString(cacheKey);
+        final cachedEtag = prefs.getString('${cacheKey}_etag');
+        dynamic response;
+        try {
+          final conditional = await const BackendApiClient().getJsonConditional(
+            '/api/v1/menu?branchId=$restaurantId',
+            etag: cachedEtag,
+          );
+          if (conditional.notModified) {
+            if (cachedJson == null) {
+              throw const FormatException('Menu returned 304 without a local cache');
+            }
+            response = jsonDecode(cachedJson);
+          } else {
+            response = conditional.data;
+            if (conditional.etag != null) {
+              await prefs.setString(cacheKey, jsonEncode(response));
+              await prefs.setString('${cacheKey}_etag', conditional.etag!);
+            }
+          }
+        } catch (error) {
+          if (error is BackendApiException || cachedJson == null) rethrow;
+          response = jsonDecode(cachedJson);
         }
-        products = response
+        if (response is! Map || response['categories'] is! List) {
+          throw const FormatException('Unexpected branch menu response');
+        }
+        products = (response['categories'] as List)
             .whereType<Map>()
-            .map((item) => ProductModel.fromMap(Map<String, dynamic>.from(item)))
+            .expand((category) {
+              final categoryName = category['name']?.toString() ?? 'General';
+              final items = category['products'];
+              if (items is! List) return const <ProductModel>[];
+              return items.whereType<Map>().map((item) {
+                final product = Map<String, dynamic>.from(item);
+                product['category'] = categoryName;
+                product['gstPercentage'] = product['taxRate'];
+                product['available'] = true;
+                return ProductModel.fromMap(product);
+              });
+            })
             .toList();
       } else {
         products = await _productRepository.getProducts();

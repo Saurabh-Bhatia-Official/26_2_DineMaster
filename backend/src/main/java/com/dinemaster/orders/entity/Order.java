@@ -21,6 +21,28 @@ public class Order {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "tenant_id")
+    private Long tenantId;
+
+    @Column(name = "order_no", nullable = false, length = 40)
+    private String orderNo;
+
+    @Version
+    @Column(nullable = false)
+    private int version;
+
+    @Column(name = "confirmed_at")
+    private OffsetDateTime confirmedAt;
+
+    @Column(name = "completed_at")
+    private OffsetDateTime completedAt;
+
+    @Column(name = "void_reason", columnDefinition = "TEXT")
+    private String voidReason;
+
+    @Column(name = "cancel_reason", columnDefinition = "TEXT")
+    private String cancelReason;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "table_id")
     private DiningTable diningTable;
@@ -49,6 +71,43 @@ public class Order {
 
     @Column(name = "discount_amount", nullable = false, precision = 12, scale = 2)
     private BigDecimal discountAmount = BigDecimal.ZERO;
+
+    @Column(nullable = false, precision = 12, scale = 2)
+    private BigDecimal subtotal = BigDecimal.ZERO;
+
+    @Column(name = "tax_amount", nullable = false, precision = 12, scale = 2)
+    private BigDecimal taxAmount = BigDecimal.ZERO;
+
+    @Column(name = "round_off", nullable = false, precision = 5, scale = 2)
+    private BigDecimal roundOff = BigDecimal.ZERO;
+
+    @Column(name = "discount_type", nullable = false, length = 12)
+    private String discountType = "FLAT";
+
+    @Column(name = "discount_value", nullable = false, precision = 12, scale = 2)
+    private BigDecimal discountValue = BigDecimal.ZERO;
+
+    @Column(name = "discount_remark", columnDefinition = "TEXT")
+    private String discountRemark;
+
+    @Column(nullable = false)
+    private boolean parked;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "created_by")
+    private User createdBy;
+
+    @Column(name = "idempotency_key", length = 64)
+    private String idempotencyKey;
+
+    @Column(name = "idempotency_hash", length = 64)
+    private String idempotencyHash;
+
+    @Column(name = "confirm_idempotency_key", length = 64)
+    private String confirmIdempotencyKey;
+
+    @Column(name = "confirm_idempotency_hash", length = 64)
+    private String confirmIdempotencyHash;
 
     @Column(nullable = false, length = 30)
     private String status = "Pending";
@@ -98,6 +157,20 @@ public class Order {
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+    public Long getTenantId() { return tenantId; }
+    public void setTenantId(Long value) { tenantId = value; }
+    public String getOrderNo() { return orderNo; }
+    public void setOrderNo(String value) { orderNo = value; }
+    public int getVersion() { return version; }
+    public void setVersion(int value) { version = value; }
+    public OffsetDateTime getConfirmedAt() { return confirmedAt; }
+    public void setConfirmedAt(OffsetDateTime value) { confirmedAt = value; }
+    public OffsetDateTime getCompletedAt() { return completedAt; }
+    public void setCompletedAt(OffsetDateTime value) { completedAt = value; }
+    public String getVoidReason() { return voidReason; }
+    public void setVoidReason(String value) { voidReason = value; }
+    public String getCancelReason() { return cancelReason; }
+    public void setCancelReason(String value) { cancelReason = value; }
 
     public DiningTable getDiningTable() { return diningTable; }
     public void setDiningTable(DiningTable diningTable) {
@@ -129,6 +202,30 @@ public class Order {
     public void setDiscountAmount(BigDecimal discountAmount) {
         this.discountAmount = discountAmount;
     }
+    public BigDecimal getSubtotal() { return subtotal; }
+    public void setSubtotal(BigDecimal value) { subtotal = value; }
+    public BigDecimal getTaxAmount() { return taxAmount; }
+    public void setTaxAmount(BigDecimal value) { taxAmount = value; }
+    public BigDecimal getRoundOff() { return roundOff; }
+    public void setRoundOff(BigDecimal value) { roundOff = value; }
+    public String getDiscountType() { return discountType; }
+    public void setDiscountType(String value) { discountType = value; }
+    public BigDecimal getDiscountValue() { return discountValue; }
+    public void setDiscountValue(BigDecimal value) { discountValue = value; }
+    public String getDiscountRemark() { return discountRemark; }
+    public void setDiscountRemark(String value) { discountRemark = value; }
+    public boolean isParked() { return parked; }
+    public void setParked(boolean value) { parked = value; }
+    public User getCreatedBy() { return createdBy; }
+    public void setCreatedBy(User value) { createdBy = value; }
+    public String getIdempotencyKey() { return idempotencyKey; }
+    public void setIdempotencyKey(String value) { idempotencyKey = value; }
+    public String getIdempotencyHash() { return idempotencyHash; }
+    public void setIdempotencyHash(String value) { idempotencyHash = value; }
+    public String getConfirmIdempotencyKey() { return confirmIdempotencyKey; }
+    public void setConfirmIdempotencyKey(String value) { confirmIdempotencyKey = value; }
+    public String getConfirmIdempotencyHash() { return confirmIdempotencyHash; }
+    public void setConfirmIdempotencyHash(String value) { confirmIdempotencyHash = value; }
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }

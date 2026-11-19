@@ -13,8 +13,18 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.jpa.repository.Lock;
+import jakarta.persistence.LockModeType;
 
 public interface OrderRepository extends JpaRepository<Order, Long> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select o from Order o where o.id = :id")
+    Optional<Order> findForUpdateById(@Param("id") Long id);
+
+    List<Order> findByRestaurant_IdAndStatusAndParkedTrueOrderByOrderTimeDesc(Long restaurantId, String status);
+    Optional<Order> findByRestaurant_IdAndIdempotencyKey(Long restaurantId, String idempotencyKey);
+    Optional<Order> findByTenantIdAndIdempotencyKey(Long tenantId, String idempotencyKey);
 
     List<Order> findByRestaurant_IdOrderByOrderTimeDesc(Long restaurantId);
 
@@ -23,6 +33,6 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     Optional<Order> findByIdAndTableSession_Id(Long orderId, Long sessionId);
 
     @Query("select count(o) from Order o where o.diningTable.id = :tableId "
-            + "and upper(o.status) not in ('COMPLETED', 'CANCELLED')")
+            + "and upper(o.status) not in ('COMPLETED', 'CANCELLED', 'VOIDED')")
     long countOpenOrdersForTable(@Param("tableId") Long tableId);
 }

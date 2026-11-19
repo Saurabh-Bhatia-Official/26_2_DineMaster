@@ -16,7 +16,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import com.dinemaster.security.BranchScopeService;
+import com.dinemaster.inventory.service.InventoryStockService;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.util.List;
@@ -28,12 +30,16 @@ public class InventoryController {
     private final InventoryRepository inventoryRepository;
     private final RestaurantRepository restaurantRepository;
     private final BranchScopeService branchScope;
+    private final InventoryStockService stock;
+    private final JdbcTemplate jdbc;
 
     public InventoryController(InventoryRepository inventoryRepository, RestaurantRepository restaurantRepository,
-            BranchScopeService branchScope) {
+            BranchScopeService branchScope, InventoryStockService stock, JdbcTemplate jdbc) {
         this.inventoryRepository = inventoryRepository;
         this.restaurantRepository = restaurantRepository;
         this.branchScope = branchScope;
+        this.stock = stock;
+        this.jdbc = jdbc;
     }
 
     @GetMapping
@@ -54,7 +60,10 @@ public class InventoryController {
             return ResponseEntity.badRequest().body(Map.of("error", "Restaurant not found"));
         InventoryItem item = new InventoryItem();
         copy(request, item, restaurant);
-        return ResponseEntity.status(HttpStatus.CREATED).body(inventoryRepository.save(item));
+        item = inventoryRepository.save(item);
+        if (item.getCurrentStock().signum() > 0)
+            stock.receive(item, item.getCurrentStock(), item.getExpiryDate(), item.getUnitCost(), "PURCHASE", "INITIAL", item.getId());
+        return ResponseEntity.status(HttpStatus.CREATED).body(item);
     }
 
     @PutMapping("/{id}")
@@ -70,7 +79,10 @@ public class InventoryController {
         Restaurant restaurant = restaurantRepository.findById(request.restaurantId()).orElse(null);
         if (restaurant == null)
             return ResponseEntity.badRequest().body(Map.of("error", "Restaurant not found"));
+        BigDecimal before = item.getCurrentStock();
         copy(request, item, restaurant);
+        BigDecimal after = request.currentStock();
+        stock.reconcile(item, before, after, "ADJUSTMENT", "INVENTORY_UPDATE", item.getId());
         return ResponseEntity.ok(inventoryRepository.save(item));
     }
 
@@ -94,7 +106,8 @@ public class InventoryController {
         if (updated == null || updated.signum() < 0) {
             return ResponseEntity.badRequest().body(Map.of("error", "Invalid stock adjustment"));
         }
-        item.setCurrentStock(updated);
+        stock.reconcile(item, current, updated,
+                "add".equalsIgnoreCase(request.mode().trim()) ? "PURCHASE" : "ADJUSTMENT", "MANUAL", item.getId());
         return ResponseEntity.ok(inventoryRepository.save(item));
     }
 
@@ -105,6 +118,14 @@ public class InventoryController {
         if (item == null)
             return ResponseEntity.notFound().build();
         branchScope.requireBranch(authentication, item.getRestaurantId());
+        Integer references = jdbc.queryForObject("""
+                SELECT (SELECT COUNT(*) FROM recipe_items WHERE ingredient_id = ?) +
+                       (SELECT COUNT(*) FROM stock_batches WHERE inventory_id = ?) +
+                       (SELECT COUNT(*) FROM stock_movements WHERE inventory_id = ?)
+                """, Integer.class, id, id, id);
+        if (references != null && references > 0)
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", "Ingredient has recipe or stock history and cannot be deleted"));
         inventoryRepository.delete(item);
         return ResponseEntity.noContent().build();
     }
@@ -115,6 +136,7 @@ public class InventoryController {
         item.setUnit(request.unit().trim());
         item.setLowStockThreshold(request.lowStockThreshold());
         item.setExpiryDate(request.expiryDate());
+        if (request.unitCost() != null) item.setUnitCost(request.unitCost());
         item.setRestaurant(restaurant);
     }
 }

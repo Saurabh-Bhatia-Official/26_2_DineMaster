@@ -1,6 +1,7 @@
 package com.dinemaster.common.exception;
 
 import com.dinemaster.auth.service.AuthService;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
@@ -71,6 +73,19 @@ public class ApiExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<Map<String, Object>> handleUnreadable(
             HttpMessageNotReadableException exception, HttpServletRequest request) {
+        Throwable cause = exception.getMostSpecificCause();
+        if (cause instanceof JsonMappingException mappingException) {
+            String field = mappingException.getPath().stream()
+                    .map(JsonMappingException.Reference::getFieldName)
+                    .filter(name -> name != null && !name.isBlank())
+                    .reduce((first, second) -> second)
+                    .orElse(null);
+            if (field != null) {
+                return ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "INVALID_FIELD_FORMAT",
+                        "A request field has an invalid value or format.",
+                        Map.of(field, "Check the value and expected format."), request);
+            }
+        }
         return ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "BAD_REQUEST",
                 "Request body is missing or contains invalid JSON or field values.", null, request);
     }
@@ -85,8 +100,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<Map<String, Object>> handleTypeMismatch(
             MethodArgumentTypeMismatchException exception, HttpServletRequest request) {
-        return ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "BAD_REQUEST",
-                "Invalid value for parameter: " + exception.getName(), null, request);
+        String expected = exception.getRequiredType() == null
+                ? "the expected type" : exception.getRequiredType().getSimpleName();
+        return ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "INVALID_PARAMETER_FORMAT",
+                "Parameter has an invalid value or format.",
+                Map.of(exception.getName(), "Provide a valid " + expected + " value."), request);
     }
 
     @ExceptionHandler({NoHandlerFoundException.class, NoResourceFoundException.class})
@@ -131,6 +149,25 @@ public class ApiExceptionHandler {
             IllegalStateException exception, HttpServletRequest request) {
         return ApiErrorResponse.of(HttpStatus.SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE",
                 "A required service is unavailable or not configured.", null, request);
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<Map<String, Object>> handleResponseStatus(
+            ResponseStatusException exception, HttpServletRequest request) {
+        HttpStatus status = HttpStatus.valueOf(exception.getStatusCode().value());
+        String code = switch (status) {
+            case BAD_REQUEST -> "BAD_REQUEST";
+            case UNAUTHORIZED -> "AUTHENTICATION_FAILED";
+            case FORBIDDEN -> "PERMISSION_DENIED";
+            case NOT_FOUND -> "NOT_FOUND";
+            case CONFLICT -> "CONFLICT";
+            case GONE -> "RESOURCE_EXPIRED";
+            case UNPROCESSABLE_ENTITY -> "VALIDATION_FAILED";
+            default -> "REQUEST_FAILED";
+        };
+        String message = exception.getReason() == null
+                ? "Request could not be completed." : exception.getReason();
+        return ApiErrorResponse.of(status, code, message, null, request);
     }
 
     @ExceptionHandler(Exception.class)

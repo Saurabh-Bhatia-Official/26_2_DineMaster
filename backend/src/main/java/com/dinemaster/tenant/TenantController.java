@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.security.core.Authentication;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 @RestController
 @RequestMapping({"/api/v1/super-admin/tenants", "/api/v1/tenants"})
@@ -36,11 +37,12 @@ public class TenantController {
     private final AuthAuditService audit;
     private final RefreshTokenRepository refreshTokens;
     private final AuthDeviceRepository devices;
+    private final JdbcTemplate jdbc;
 
     public TenantController(TenantRepository tenants, UserRepository users,
             UserBranchRepository userBranches, UserRoleRepository userRoles,
             PasswordEncoder passwordEncoder, AuthAuditService audit,
-            RefreshTokenRepository refreshTokens, AuthDeviceRepository devices) {
+            RefreshTokenRepository refreshTokens, AuthDeviceRepository devices, JdbcTemplate jdbc) {
         this.tenants = tenants;
         this.users = users;
         this.userBranches = userBranches;
@@ -49,6 +51,7 @@ public class TenantController {
         this.audit = audit;
         this.refreshTokens = refreshTokens;
         this.devices = devices;
+        this.jdbc = jdbc;
     }
 
     @GetMapping
@@ -67,6 +70,10 @@ public class TenantController {
         }
 
         Tenant tenant = tenants.save(new Tenant(request.name().trim()));
+        jdbc.update("""
+                INSERT INTO tax_slabs(tenant_id, name, rate_percent)
+                VALUES (?, 'GST 0%', 0), (?, 'GST 5%', 5), (?, 'GST 12%', 12), (?, 'GST 18%', 18)
+                """, tenant.getId(), tenant.getId(), tenant.getId(), tenant.getId());
         User owner = new User();
         owner.setName(request.ownerName().trim());
         owner.setUsername(username);

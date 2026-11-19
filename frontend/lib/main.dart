@@ -20,6 +20,7 @@ import 'screens/user_management_screen.dart';
 import 'screens/printer_settings_screen.dart';
 import 'screens/restaurants_screen.dart';
 import 'screens/menu_card_screen.dart';
+import 'screens/guest_menu_screen.dart';
 import 'screens/live_tracking_screen.dart';
 import 'screens/customers_screen.dart';
 import 'screens/waiter_order_screen.dart';
@@ -69,6 +70,12 @@ GoRouter _buildRouter(bool hasToken, [String? initialLocation]) {
         builder: (context, state) => const SplashScreen(),
       ),
       GoRoute(path: '/', builder: (context, state) => const LoginScreen()),
+      GoRoute(
+        path: '/guest-menu',
+        builder: (context, state) => GuestMenuScreen(
+          token: state.uri.queryParameters['t'] ?? '',
+        ),
+      ),
       GoRoute(
         path: '/branch_selection',
         builder: (context, state) => const BranchSelectionScreen(),

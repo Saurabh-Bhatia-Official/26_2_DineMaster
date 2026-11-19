@@ -50,14 +50,14 @@ public final class RolePermissions {
                     "customer:manage", "dashboard:view", "report:sales", "notification:view", "sync:view_status"));
             case "WAITER" -> permissions.addAll(Set.of(
                     "table:view", "table:update_status", "reservation:view", "reservation:create", "reservation:update", "menu:view",
-                    "order:create", "order:view", "order:update", "order:cancel", "order:park", "order:reopen",
+                    "order:create", "order:view", "order:update", "order:cancel", "order:park", "order:reopen", "table:assign_waiter",
                     "kot:view", "kot:update_status", "kot:reprint", "customer:view", "notification:view"));
             case "CHEF" -> permissions.addAll(Set.of(
                     "menu:view", "menu:toggle_availability", "recipe:view", "order:view", "kot:view",
                     "kot:update_status", "kot:reprint", "inventory:view", "dashboard:view", "report:kitchen",
                     "notification:view"));
             case "INVENTORY_MANAGER" -> permissions.addAll(Set.of(
-                    "branch:view", "menu:view", "recipe:view", "inventory:view", "inventory:receive",
+                    "branch:view", "menu:view", "menu:toggle_availability", "recipe:view", "inventory:view", "inventory:receive",
                     "inventory:adjust", "inventory:count", "supplier:view", "supplier:manage", "expense:view",
                     "expense:create", "dashboard:view", "report:inventory", "report:export", "notification:view"));
             default -> { }

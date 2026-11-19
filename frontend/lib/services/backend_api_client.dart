@@ -8,11 +8,47 @@ import 'auth_token_storage.dart';
 class BackendApiException implements Exception {
   final int statusCode;
   final String message;
+  final String? code;
+  final Map<String, dynamic> fieldErrors;
 
-  const BackendApiException(this.statusCode, this.message);
+  const BackendApiException(
+    this.statusCode,
+    this.message, {
+    this.code,
+    this.fieldErrors = const {},
+  });
+
+  String get userMessage {
+    if (fieldErrors.isEmpty) return message;
+    final errors = fieldErrors.entries
+        .map((entry) => '${_humanize(entry.key)}: ${entry.value}')
+        .join('\n');
+    return '$message\n$errors';
+  }
+
+  static String _humanize(String value) {
+    final words = value
+        .replaceAll(RegExp(r'([a-z])([A-Z])'), r'$1 $2')
+        .replaceAll(RegExp(r'[._]+'), ' ')
+        .trim();
+    if (words.isEmpty) return 'Field';
+    return '${words[0].toUpperCase()}${words.substring(1)}';
+  }
 
   @override
-  String toString() => 'Backend API error ($statusCode): $message';
+  String toString() => userMessage;
+}
+
+class ConditionalJsonResponse {
+  final dynamic data;
+  final String? etag;
+  final bool notModified;
+
+  const ConditionalJsonResponse({
+    required this.data,
+    required this.etag,
+    required this.notModified,
+  });
 }
 
 class BackendApiClient {
@@ -48,8 +84,58 @@ class BackendApiClient {
     return _requestJson('GET', path);
   }
 
-  Future<dynamic> postJson(String path, Map<String, dynamic> body) async {
-    return _requestJson('POST', path, body: body);
+  Future<ConditionalJsonResponse> getJsonConditional(
+    String path, {
+    String? etag,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    var token = await AuthTokenStorage.readAccessToken();
+    if (token == null || token.isEmpty) {
+      token = prefs.getString('token') ?? prefs.getString('flutter.token');
+      if (token != null && token.isNotEmpty) {
+        await AuthTokenStorage.save(accessToken: token);
+        await prefs.remove('token');
+        await prefs.remove('flutter.token');
+      }
+    }
+    final headers = etag == null ? null : {'If-None-Match': etag};
+    var response = await _send('GET', path, null, token, extraHeaders: headers);
+    if (response.statusCode == 401 &&
+        !path.endsWith('/auth/login') &&
+        !path.endsWith('/auth/refresh')) {
+      final refreshToken = await AuthTokenStorage.readRefreshToken();
+      if (refreshToken != null && await _refreshOnce(refreshToken)) {
+        response = await _send(
+          'GET',
+          path,
+          null,
+          await AuthTokenStorage.readAccessToken(),
+          extraHeaders: headers,
+        );
+      } else {
+        await AuthTokenStorage.clear();
+      }
+    }
+    if (response.statusCode == 304) {
+      return ConditionalJsonResponse(
+        data: null,
+        etag: response.headers['etag'] ?? etag,
+        notModified: true,
+      );
+    }
+    return ConditionalJsonResponse(
+      data: _decodeResponse(response),
+      etag: response.headers['etag'],
+      notModified: false,
+    );
+  }
+
+  Future<dynamic> postJson(
+    String path,
+    Map<String, dynamic> body, {
+    Map<String, String>? headers,
+  }) async {
+    return _requestJson('POST', path, body: body, extraHeaders: headers);
   }
 
   Future<dynamic> postMultipartJson(
@@ -105,6 +191,7 @@ class BackendApiClient {
     String method,
     String path, {
     dynamic body,
+    Map<String, String>? extraHeaders,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     var token = await AuthTokenStorage.readAccessToken();
@@ -118,7 +205,13 @@ class BackendApiClient {
       }
     }
 
-    final response = await _send(method, path, body, token);
+    final response = await _send(
+      method,
+      path,
+      body,
+      token,
+      extraHeaders: extraHeaders,
+    );
     if (response.statusCode == 401 &&
         !path.endsWith('/auth/login') &&
         !path.endsWith('/auth/refresh')) {
@@ -130,6 +223,7 @@ class BackendApiClient {
             path,
             body,
             await AuthTokenStorage.readAccessToken(),
+            extraHeaders: extraHeaders,
           ),
         );
       }
@@ -142,16 +236,18 @@ class BackendApiClient {
     String method,
     String path,
     dynamic body,
-    String? token,
-  ) async {
+    String? token, {
+    Map<String, String>? extraHeaders,
+  }) async {
     final headers = <String, String>{
       'Accept': 'application/json',
-            if (body != null) 'Content-Type': 'application/json',
+      if (body != null) 'Content-Type': 'application/json',
     };
 
     if (token != null && token.isNotEmpty) {
       headers['Authorization'] = 'Bearer $token';
     }
+    if (extraHeaders != null) headers.addAll(extraHeaders);
 
     final request = http.Request(method, await _uri(path))
       ..headers.addAll(headers);
@@ -164,7 +260,7 @@ class BackendApiClient {
     try {
       final streamedResponse = await client
           .send(request)
-          .timeout(const Duration(seconds: 10));
+          .timeout(const Duration(seconds: 30));
       return await http.Response.fromStream(streamedResponse);
     } finally {
       client.close();
@@ -200,11 +296,39 @@ class BackendApiClient {
     }
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      final message = decoded is Map<String, dynamic>
-          ? decoded['error']?.toString() ?? response.body
-          : response.body;
+      final errorBody = decoded is Map
+          ? Map<String, dynamic>.from(decoded)
+          : <String, dynamic>{};
+      final message = (errorBody['message'] ??
+              errorBody['error'] ??
+              errorBody['detail'])
+          ?.toString()
+          .trim();
+      final details = errorBody['details'];
+      final fieldErrors = <String, dynamic>{};
+      if (details is Map) {
+        details.forEach((key, value) {
+          if (value != null && value.toString().trim().isNotEmpty) {
+            fieldErrors[key.toString()] = value;
+          }
+        });
+      } else if (errorBody['fieldErrors'] is Map) {
+        (errorBody['fieldErrors'] as Map).forEach((key, value) {
+          if (value != null && value.toString().trim().isNotEmpty) {
+            fieldErrors[key.toString()] = value;
+          }
+        });
+      }
 
-      throw BackendApiException(response.statusCode, message);
+      final fallback = response.body.trim().isNotEmpty
+          ? response.body.trim()
+          : 'Request failed (${response.statusCode}).';
+      throw BackendApiException(
+        response.statusCode,
+        message == null || message.isEmpty ? fallback : message,
+        code: errorBody['code']?.toString(),
+        fieldErrors: fieldErrors,
+      );
     }
 
     return decoded;

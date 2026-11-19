@@ -39,7 +39,7 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
 
       if (await ApiMode.useBackendApi()) {
         final response =
-            await const BackendApiClient().getJson('/api/categories');
+            await const BackendApiClient().getJson('/api/v1/categories');
         if (response is! List) {
           throw const FormatException('Unexpected categories response');
         }
@@ -1179,20 +1179,67 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
                     ),
                   ],
                 ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    icon: const Icon(Icons.storefront_outlined),
+                    label: const Text('Branch availability'),
+                    onPressed: () => _showBranchAvailability(),
+                  ),
+                ),
                 const SizedBox(height: 8),
                 SizedBox(
-                  height: 220,
-                  child: ListView.builder(
+                  height: 300,
+                  child: ReorderableListView.builder(
                     itemCount: _categoryRecords.length,
+                    onReorder: (oldIndex, newIndex) async {
+                      if (newIndex > oldIndex) newIndex--;
+                      final reordered = List<Map<String, dynamic>>.from(_categoryRecords);
+                      final moved = reordered.removeAt(oldIndex);
+                      reordered.insert(newIndex, moved);
+                      try {
+                        if (await ApiMode.useBackendApi()) {
+                          await const BackendApiClient().putJson('/api/v1/categories/reorder', {
+                            'items': reordered.asMap().entries.map((entry) => {
+                              'id': entry.value['id'],
+                              'sortOrder': entry.key,
+                            }).toList(),
+                          });
+                        } else {
+                          throw StateError('Category ordering requires the backend API.');
+                        }
+                        await _loadCategories();
+                        setCatState(() {});
+                      } catch (e) {
+                        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not reorder categories: $e')));
+                      }
+                    },
                     itemBuilder: (context, index) {
                       final category = _categoryRecords[index];
                       final id = (category['id'] as num?)?.toInt();
                       final name = category['name']?.toString() ?? '';
                       return ListTile(
+                        key: ValueKey(id ?? 'category-$index'),
                         dense: true,
                         title: Text(name),
                         trailing: Wrap(
                           children: [
+                            Switch(
+                              value: category['active'] == true || category['is_active'] == true || category['is_active'] == 1,
+                              onChanged: id == null ? null : (active) async {
+                                try {
+                                  if (await ApiMode.useBackendApi()) {
+                                    await const BackendApiClient().putJson('/api/v1/categories/$id', {'name': name, 'active': active});
+                                  } else {
+                                    throw StateError('Category status requires the backend API.');
+                                  }
+                                  await _loadCategories();
+                                  setCatState(() {});
+                                } catch (e) {
+                                  if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not update category status: $e')));
+                                }
+                              },
+                            ),
                             IconButton(
                               tooltip: 'Edit category',
                               icon: const Icon(Icons.edit_outlined, size: 18),
@@ -1229,6 +1276,7 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
                                 }
                               },
                             ),
+                            ReorderableDragStartListener(index: index, child: const Icon(Icons.drag_handle)),
                             IconButton(
                               tooltip: 'Delete category',
                               icon: const Icon(Icons.delete_outline, color: Colors.red, size: 18),
@@ -1266,6 +1314,91 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _showBranchAvailability() async {
+    final branchId = DatabaseHelper.currentRestaurantId ?? 1;
+    try {
+      final response = await const BackendApiClient().getJson(
+        '/api/v1/branches/$branchId/availability',
+      );
+      if (response is! List || !mounted) {
+        throw const FormatException('Unexpected branch availability response');
+      }
+      final rows = response.whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item)).toList();
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (dialogContext, setDialogState) => AlertDialog(
+            title: const Text('Branch product availability'),
+            content: SizedBox(
+              width: 480,
+              height: 420,
+              child: ListView.builder(
+                itemCount: rows.length,
+                itemBuilder: (context, index) {
+                  final row = rows[index];
+                  final priceController = TextEditingController(
+                    text: row['priceOverride']?.toString() ?? '',
+                  );
+                  return ListTile(
+                    title: Text(row['name']?.toString() ?? 'Product'),
+                    subtitle: SizedBox(
+                      width: 110,
+                      child: TextField(
+                        controller: priceController,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: InputDecoration(
+                          labelText: 'Price override',
+                          hintText: row['price']?.toString(),
+                        ),
+                        onChanged: (value) => row['priceOverride'] = value.trim().isEmpty
+                            ? null : num.tryParse(value),
+                      ),
+                    ),
+                    trailing: Switch(
+                      value: row['isAvailable'] == true,
+                      onChanged: (value) => setDialogState(() => row['isAvailable'] = value),
+                    ),
+                  );
+                },
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+              FilledButton(
+                onPressed: () async {
+                  try {
+                    await const BackendApiClient().putJson(
+                      '/api/v1/branches/$branchId/availability',
+                      {'items': rows.map((row) => {
+                        'productId': row['productId'],
+                        'isAvailable': row['isAvailable'] == true,
+                        'priceOverride': row['priceOverride'],
+                      }).toList()},
+                    );
+                    if (dialogContext.mounted) Navigator.pop(dialogContext);
+                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Branch menu availability saved')),
+                    );
+                  } catch (e) {
+                    if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(
+                      SnackBar(content: Text('Could not save branch availability: $e')),
+                    );
+                  }
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not load branch availability: $e')),
+      );
+    }
   }
 
   void _confirmDelete(int? id, String name) {

@@ -16,5 +16,6 @@ public record InventoryRequest(
         @NotBlank @Size(max = 30) String unit,
         @NotNull @DecimalMin("0.0") BigDecimal lowStockThreshold,
         LocalDate expiryDate,
-        @NotNull @Positive Long restaurantId) {
+        @NotNull @Positive Long restaurantId,
+        @DecimalMin("0.0") BigDecimal unitCost) {
 }

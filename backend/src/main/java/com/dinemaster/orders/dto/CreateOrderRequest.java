@@ -9,7 +9,6 @@ import com.dinemaster.orders.entity.OrderItem;
 import com.dinemaster.restaurant.entity.Restaurant;
 
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
@@ -45,7 +44,7 @@ public class CreateOrderRequest {
     private BigDecimal discountAmount = BigDecimal.ZERO;
 
     @Valid
-    @NotEmpty(message = "At least one order item is required")
+    @Size(max = 100, message = "A cart can contain at most 100 lines")
     private List<OrderItemRequest> items = new ArrayList<>();
 
     public CreateOrderRequest() {

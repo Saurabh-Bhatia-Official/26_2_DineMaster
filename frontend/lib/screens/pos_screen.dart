@@ -933,6 +933,7 @@ class _PosScreenState extends State<PosScreen>
     }).toList();
 
     final order = await _orderApiRepository.createOrder(
+      idempotencyKey: OrderApiRepository.newIdempotencyKey(),
       restaurantId: DatabaseHelper.currentRestaurantId ?? 1,
       items: items,
       tableId: _selectedTableId,

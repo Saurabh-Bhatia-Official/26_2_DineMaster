@@ -13,7 +13,6 @@ import com.dinemaster.orders.dto.CreateOrderRequest;
 import com.dinemaster.orders.dto.OrderItemRequest;
 import com.dinemaster.orders.dto.OrderItemResponse;
 import com.dinemaster.orders.dto.OrderResponse;
-import com.dinemaster.orders.dto.OrderStatusRequest;
 import com.dinemaster.orders.dto.PaymentRequest;
 import com.dinemaster.orders.entity.Order;
 import com.dinemaster.orders.entity.OrderItem;
@@ -24,6 +23,9 @@ import com.dinemaster.restaurant.repository.RestaurantRepository;
 import com.dinemaster.user.entity.User;
 import com.dinemaster.user.repository.UserRepository;
 import com.dinemaster.user.repository.UserBranchRepository;
+import com.dinemaster.kitchen.service.KotService;
+import com.dinemaster.catalog.repository.BranchProductRepository;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -38,10 +40,6 @@ import java.util.Set;
 @Service
 public class OrderService {
 
-        private static final Set<String> ALLOWED_STATUSES = Set.of(
-                        "Pending", "Received", "Preparing", "Ready", "Served",
-                        "Completed", "Held", "Cancelled");
-
         private final OrderRepository orderRepository;
         private final OrderItemRepository orderItemRepository;
         private final ProductRepository productRepository;
@@ -50,6 +48,11 @@ public class OrderService {
         private final CustomerRepository customerRepository;
         private final UserRepository userRepository;
         private final UserBranchRepository userBranches;
+        private final KotService kotService;
+        private final BranchProductRepository branchProducts;
+        private final JdbcTemplate jdbc;
+        private final OrderStateMachine stateMachine;
+        private final OrderAuditService audit;
 
         public OrderService(
                         OrderRepository orderRepository,
@@ -59,7 +62,10 @@ public class OrderService {
                         DiningTableRepository diningTableRepository,
                         CustomerRepository customerRepository,
                         UserRepository userRepository,
-                        UserBranchRepository userBranches) {
+                        UserBranchRepository userBranches,
+                        KotService kotService,
+                        BranchProductRepository branchProducts,
+                        JdbcTemplate jdbc, OrderStateMachine stateMachine, OrderAuditService audit) {
                 this.orderRepository = orderRepository;
                 this.orderItemRepository = orderItemRepository;
                 this.productRepository = productRepository;
@@ -68,6 +74,11 @@ public class OrderService {
                 this.customerRepository = customerRepository;
                 this.userRepository = userRepository;
                 this.userBranches = userBranches;
+                this.kotService = kotService;
+                this.branchProducts = branchProducts;
+                this.jdbc = jdbc;
+                this.stateMachine = stateMachine;
+                this.audit = audit;
         }
 
         @Transactional
@@ -156,13 +167,16 @@ public class OrderService {
                                                 "Every product must belong to the order's restaurant");
                         }
 
-                        if (!product.isAvailable()) {
+                        var branchProduct = branchProducts.findByBranchIdAndProductId(restaurant.getId(), product.getId()).orElse(null);
+                        if (!product.isAvailable() || branchProduct != null && !branchProduct.isAvailable()) {
                                 throw new ResponseStatusException(
                                                 HttpStatus.BAD_REQUEST,
                                                 "Product is unavailable: " + product.getName());
                         }
 
-                        BigDecimal lineTotal = product.getPrice().multiply(
+                        BigDecimal effectivePrice = branchProduct != null && branchProduct.getPriceOverride() != null
+                                ? branchProduct.getPriceOverride() : product.getPrice();
+                        BigDecimal lineTotal = effectivePrice.multiply(
                                         BigDecimal.valueOf(itemRequest.getQuantity()));
 
                         subtotal = subtotal.add(lineTotal);
@@ -170,8 +184,9 @@ public class OrderService {
                         OrderItem item = new OrderItem();
                         item.setOrder(order);
                         item.setProduct(product);
+                        item.setProductNameSnapshot(product.getName());
                         item.setQuantity(itemRequest.getQuantity());
-                        item.setPrice(product.getPrice());
+                        item.setPrice(effectivePrice);
                         item.setNotes(itemRequest.getNotes());
                         item.setStatus("Pending");
 
@@ -244,32 +259,85 @@ public class OrderService {
         }
 
         @Transactional
-        public OrderResponse updateStatus(Long orderId, OrderStatusRequest request) {
-                String status = request.status().trim();
-                if (!ALLOWED_STATUSES.contains(status)) {
-                        throw new ResponseStatusException(
-                                        HttpStatus.BAD_REQUEST, "Unsupported order status: " + status);
+        public OrderResponse confirmDraft(Long orderId, String idempotencyKey, User actor) {
+                Order order = orderRepository.findForUpdateById(orderId)
+                                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found"));
+                if (idempotencyKey == null || idempotencyKey.isBlank() || idempotencyKey.length() > 64)
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A valid Idempotency-Key is required");
+                if ("CONFIRMED".equalsIgnoreCase(order.getStatus())) {
+                        if (idempotencyKey.equals(order.getConfirmIdempotencyKey())) return OrderResponse.from(order);
+                        throw new ResponseStatusException(HttpStatus.CONFLICT, "Order was already confirmed with another request key");
                 }
-                Order order = findOrder(orderId);
-                order.setStatus(status);
+                if (!"DRAFT".equalsIgnoreCase(order.getStatus()) || "QR".equalsIgnoreCase(order.getChannel()))
+                        throw new ResponseStatusException(HttpStatus.CONFLICT, "Only a POS draft can be confirmed here");
+                if (order.isParked()) throw new ResponseStatusException(HttpStatus.CONFLICT, "Reopen the cart before confirming it");
+                List<OrderItem> items = orderItemRepository.findByOrder_Id(orderId);
+                if (items.isEmpty()) throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Cannot confirm an empty cart");
+                for (OrderItem item : items) {
+                        Product current = productRepository.findByIdAndRestaurant_Id(item.getProduct().getId(), order.getRestaurant().getId())
+                                        .filter(p -> p.getDeletedAt() == null && p.isAvailable())
+                                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "A cart product is no longer available"));
+                        var branch = branchProducts.findByBranchIdAndProductId(order.getRestaurant().getId(), current.getId()).orElse(null);
+                        BigDecimal currentPrice = branch != null && branch.getPriceOverride() != null ? branch.getPriceOverride() : current.getPrice();
+                        if (branch != null && !branch.isAvailable() || currentPrice.compareTo(item.getPrice()) != 0)
+                                throw new ResponseStatusException(HttpStatus.CONFLICT, "Menu availability or price changed; refresh the cart before confirming");
+                }
+                stateMachine.requireTransition(order.getStatus(), "CONFIRMED");
+                order.setStatus("CONFIRMED"); order.setConfirmedAt(java.time.OffsetDateTime.now()); order.setParked(false);
+                order.setConfirmIdempotencyKey(idempotencyKey);
+                try {
+                        order.setConfirmIdempotencyHash(java.util.HexFormat.of().formatHex(
+                                        java.security.MessageDigest.getInstance("SHA-256")
+                                                        .digest((orderId + ":" + idempotencyKey).getBytes(java.nio.charset.StandardCharsets.UTF_8))));
+                } catch (java.security.NoSuchAlgorithmException ex) { throw new IllegalStateException("SHA-256 unavailable", ex); }
+                if (order.getDiningTable() != null) order.getDiningTable().setStatus("Ordering");
+                kotService.generate(orderId);
+                audit.transition(orderId, "ORDER", orderId, "DRAFT", "CONFIRMED", actor.getId(), null, null, null);
+                audit.event(orderId, "order.confirmed", java.util.Map.of("status", "CONFIRMED"));
                 return OrderResponse.from(orderRepository.save(order));
         }
 
         @Transactional
         public OrderResponse hold(Long orderId) {
                 Order order = findOrder(orderId);
-                order.setStatus("Held");
+                if (!"DRAFT".equalsIgnoreCase(order.getStatus())) throw new ResponseStatusException(HttpStatus.CONFLICT, "Only draft orders can be parked");
+                order.setParked(true);
                 return OrderResponse.from(orderRepository.save(order));
         }
 
         @Transactional
-        public OrderResponse cancel(Long orderId) {
-                Order order = findOrder(orderId);
-                if ("Paid".equalsIgnoreCase(order.getPaymentStatus())) {
-                        throw new ResponseStatusException(
-                                        HttpStatus.BAD_REQUEST, "A paid order cannot be cancelled");
-                }
-                order.setStatus("Cancelled");
+        public OrderResponse cancel(Long orderId, String reason, User actor) {
+                Order order = orderRepository.findForUpdateById(orderId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found"));
+                if (reason == null || reason.isBlank()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cancellation reason is required");
+                if ("DRAFT".equalsIgnoreCase(order.getStatus()) && !java.util.Objects.equals(order.getCreatedBy() == null ? null : order.getCreatedBy().getId(), actor.getId())
+                        && !com.dinemaster.role.Roles.matches(actor.getRole(), "MANAGER")
+                        && !com.dinemaster.role.Roles.matches(actor.getRole(), "OWNER"))
+                        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the order creator or a manager can cancel a draft");
+                stateMachine.requireTransition(order.getStatus(), "CANCELLED");
+                List<OrderItem> lines = orderItemRepository.findByOrder_Id(orderId);
+                if ("CONFIRMED".equalsIgnoreCase(order.getStatus()) && lines.stream().anyMatch(i -> List.of("COOKING", "READY", "SERVED").contains(i.getStatus().toUpperCase())))
+                        throw new ResponseStatusException(HttpStatus.CONFLICT, "Order cannot be cancelled after kitchen preparation has started");
+                if ("CONFIRMED".equalsIgnoreCase(order.getStatus())) kotService.createCancellationNotices(orderId, lines, reason.trim(), actor);
+                String oldStatus = order.getStatus(); order.setStatus("CANCELLED"); order.setCancelReason(reason.trim());
+                for (OrderItem line : lines) { String from = line.getStatus(); line.setStatus("CANCELLED"); line.setCancelReason(reason.trim()); audit.transition(orderId, "ITEM", line.getId(), from, "CANCELLED", actor.getId(), null, reason.trim(), null); }
+                if (order.getDiningTable() != null) order.getDiningTable().setStatus("Cleaning");
+                audit.transition(orderId, "ORDER", orderId, oldStatus, "CANCELLED", actor.getId(), null, reason.trim(), null);
+                audit.event(orderId, "order.cancelled", java.util.Map.of("reason", reason.trim()));
+                return OrderResponse.from(orderRepository.save(order));
+        }
+
+        @Transactional
+        public OrderResponse voidOrder(Long orderId, String reason, User actor) {
+                Order order = orderRepository.findForUpdateById(orderId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found"));
+                if (reason == null || reason.isBlank()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Void reason is required");
+                if (!com.dinemaster.role.Roles.matches(actor.getRole(), "MANAGER") && !com.dinemaster.role.Roles.matches(actor.getRole(), "OWNER"))
+                        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Manager approval is required to void an order");
+                if (!"CONFIRMED".equalsIgnoreCase(order.getStatus()))
+                        throw new ResponseStatusException(HttpStatus.CONFLICT, "Paid order voids must be processed through the refund workflow");
+                stateMachine.requireTransition(order.getStatus(), "VOIDED");
+                String from = order.getStatus(); order.setStatus("VOIDED"); order.setVoidReason(reason.trim());
+                audit.transition(orderId, "ORDER", orderId, from, "VOIDED", actor.getId(), actor.getId(), reason.trim(), null);
+                audit.event(orderId, "order.voided", java.util.Map.of("reason", reason.trim()));
                 return OrderResponse.from(orderRepository.save(order));
         }
 
@@ -285,11 +353,22 @@ public class OrderService {
                         throw new ResponseStatusException(
                                         HttpStatus.BAD_REQUEST, "A cancelled order cannot be paid");
                 }
+                if (!"BILLED".equalsIgnoreCase(order.getStatus())) throw new ResponseStatusException(HttpStatus.CONFLICT, "Order must be billed before payment");
+                stateMachine.requireTransition(order.getStatus(), "PAID");
                 order.setPaymentStatus("Paid");
                 order.setPaymentMethod(paymentMethod);
-                order.setStatus("Completed");
-                if (order.getDiningTable() != null) order.getDiningTable().setStatus("Cleaning");
-                return OrderResponse.from(orderRepository.save(order));
+                String priorStatus = order.getStatus(); order.setStatus("PAID");
+                Order saved = orderRepository.save(order);
+                audit.transition(orderId, "ORDER", orderId, priorStatus, "PAID", null, null, null, null);
+                audit.event(orderId, "order.paid", java.util.Map.of("paymentMethod", paymentMethod));
+                jdbc.update("INSERT INTO recipe_deduction_jobs(order_id) VALUES (?) ON CONFLICT (order_id) DO NOTHING", orderId);
+                jdbc.update("""
+                        INSERT INTO order_recipe_snapshots(order_item_id, recipe_id)
+                        SELECT oi.id, r.id FROM order_items oi
+                        LEFT JOIN recipes r ON r.product_id = oi.product_id AND r.is_active = TRUE
+                        WHERE oi.order_id = ? ON CONFLICT (order_item_id) DO NOTHING
+                        """, orderId);
+                return OrderResponse.from(saved);
         }
 
         private Order findOrder(Long orderId) {
@@ -304,7 +383,10 @@ public class OrderService {
                 if (!"QR".equalsIgnoreCase(order.getChannel()) || !"DRAFT".equalsIgnoreCase(order.getStatus())) {
                         throw new ResponseStatusException(HttpStatus.CONFLICT, "Only a QR draft order can be accepted");
                 }
-                order.setStatus("Pending");
+                order.setStatus("CONFIRMED"); order.setConfirmedAt(java.time.OffsetDateTime.now());
+                kotService.generate(orderId);
+                audit.transition(orderId, "ORDER", orderId, "DRAFT", "CONFIRMED", null, null, "QR order accepted", null);
+                audit.event(orderId, "order.confirmed", java.util.Map.of("source", "QR"));
                 return OrderResponse.from(orderRepository.save(order));
         }
 }

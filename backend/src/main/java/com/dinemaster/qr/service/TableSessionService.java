@@ -25,7 +25,7 @@ public class TableSessionService {
     private final String menuBaseUrl;
 
     public TableSessionService(TableSessionRepository sessions, DiningTableRepository tables,
-            @Value("${dinemaster.guest.menu-base-url:/menu}") String menuBaseUrl) {
+            @Value("${dinemaster.guest.menu-base-url:/#/guest-menu}") String menuBaseUrl) {
         this.sessions = sessions;
         this.tables = tables;
         this.menuBaseUrl = menuBaseUrl;
@@ -38,11 +38,6 @@ public class TableSessionService {
         Restaurant branch = table.getRestaurant();
         if (!table.isActive() || branch == null || !branch.isActive()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Table is inactive");
-        }
-        String status = table.getStatus() == null ? "" : table.getStatus().trim();
-        if (status.equalsIgnoreCase("Available") || status.equalsIgnoreCase("Cleaning")
-                || status.equalsIgnoreCase("Out Of Service")) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Seat the guests before opening a QR session");
         }
         OffsetDateTime now = OffsetDateTime.now();
         sessions.lockOpenForTable(tableId).forEach(s -> s.setClosedAt(now));

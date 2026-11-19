@@ -160,6 +160,23 @@ class TableRepository {
     return count;
   }
 
+  Future<void> assignWaiter(int tableId, int waiterId) async {
+    if (await _useBackendApi()) {
+      await _apiClient.putJson('/api/v1/tables/$tableId/waiter', {
+        'waiterId': waiterId,
+      });
+      return;
+    }
+
+    final db = await _dbHelper.database;
+    await db.update(
+      'tables',
+      {'waiter_id': waiterId},
+      where: 'id = ?',
+      whereArgs: [tableId],
+    );
+  }
+
   /// SQLite order reconciliation is available only on desktop/mobile.
   /// Web order and booking reconciliation should be handled by the backend.
   Future<void> syncTableStatusForOrder(int orderId) async {

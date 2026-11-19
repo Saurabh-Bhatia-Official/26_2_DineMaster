@@ -553,6 +553,18 @@ class _UserManagementScreenState extends State<UserManagementScreen>
 
                   Navigator.pop(dialogContext);
                   await _loadUsers();
+                  if (!isEditing && mounted) {
+                    final normalizedRole = _displayRole(role);
+                    final targetTab = normalizedRole == 'Chef'
+                        ? 0
+                        : normalizedRole == 'Waiter'
+                        ? 1
+                        : 2;
+                    _tabController.animateTo(targetTab);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Employee added under $normalizedRole')),
+                    );
+                  }
                 } catch (e) {
                   debugPrint('Error saving user: $e');
 

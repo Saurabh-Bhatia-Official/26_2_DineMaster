@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:dine_master/core/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -57,6 +58,17 @@ class _TablesScreenState extends State<TablesScreen> {
     'Cleaning',
     'Out of Service',
   ];
+
+  String _displayTableStatus(String? rawStatus) {
+    final normalized = (rawStatus ?? '').trim().toLowerCase().replaceAll(
+      RegExp(r'[_-]+'),
+      ' ',
+    );
+    for (final status in _allStatuses.where((s) => s != 'All')) {
+      if (status.toLowerCase() == normalized) return status;
+    }
+    return 'Available';
+  }
 
   @override
   void initState() {
@@ -702,7 +714,10 @@ class _TablesScreenState extends State<TablesScreen> {
     );
     final notesCtrl = TextEditingController(text: existingTable?.notes ?? '');
 
-    final availableSections = _sections.where((s) => s != 'All').toList();
+    final availableSections = _sections
+        .where((s) => s != 'All')
+        .toSet()
+        .toList();
     if (availableSections.isEmpty) availableSections.add('Main Hall');
     String section =
         existingTable?.section ??
@@ -711,7 +726,7 @@ class _TablesScreenState extends State<TablesScreen> {
             : availableSections.first);
     if (!availableSections.contains(section)) availableSections.add(section);
 
-    final availableTypes = List<String>.from(_tableTypes);
+    final availableTypes = _tableTypes.toSet().toList();
     if (availableTypes.isEmpty) availableTypes.add('Standard Table');
     String tableType =
         existingTable?.tableType ??
@@ -720,7 +735,9 @@ class _TablesScreenState extends State<TablesScreen> {
             : availableTypes.first);
     if (!availableTypes.contains(tableType)) availableTypes.add(tableType);
 
-    String status = existingTable?.status ?? 'Available';
+    String status = _displayTableStatus(existingTable?.status);
+    String? numberError;
+    String? capacityError;
     bool isActive = existingTable?.isActive ?? true;
     bool isReservable = existingTable?.isReservable ?? true;
     int? selectedWaiterId = existingTable?.waiterId;
@@ -784,9 +801,15 @@ class _TablesScreenState extends State<TablesScreen> {
                           flex: 1,
                           child: TextField(
                             controller: numberCtrl,
-                            decoration: const InputDecoration(
+                            onChanged: (_) {
+                              if (numberError != null) {
+                                setDlgState(() => numberError = null);
+                              }
+                            },
+                            decoration: InputDecoration(
                               labelText: 'Table Number *',
                               hintText: 'e.g. T-01, B-12',
+                              errorText: numberError,
                               border: OutlineInputBorder(),
                             ),
                           ),
@@ -812,6 +835,11 @@ class _TablesScreenState extends State<TablesScreen> {
                           child: TextField(
                             controller: capacityCtrl,
                             keyboardType: TextInputType.number,
+                            onChanged: (_) {
+                              if (capacityError != null) {
+                                setDlgState(() => capacityError = null);
+                              }
+                            },
                             enabled:
                                 !isEditing ||
                                 (existingTable.status == 'Available'),
@@ -822,6 +850,7 @@ class _TablesScreenState extends State<TablesScreen> {
                                   ? 'Seating Capacity *'
                                   : 'Capacity Locked (Active Order)',
                               prefixIcon: const Icon(Icons.chair_alt),
+                              errorText: capacityError,
                               border: const OutlineInputBorder(),
                             ),
                           ),
@@ -885,6 +914,7 @@ class _TablesScreenState extends State<TablesScreen> {
                             value: status,
                             items: _allStatuses
                                 .where((s) => s != 'All')
+                                .toSet()
                                 .map(
                                   (s) => DropdownMenuItem(
                                     value: s,
@@ -1009,22 +1039,15 @@ class _TablesScreenState extends State<TablesScreen> {
                       final cap = int.tryParse(capacityCtrl.text.trim()) ?? 0;
 
                       if (num.isEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Please enter a table number'),
-                            backgroundColor: Colors.red,
-                          ),
+                        setDlgState(
+                          () => numberError = 'Enter a table number.',
                         );
                         return;
                       }
                       if (cap <= 0) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Seating capacity must be at least 1',
-                            ),
-                            backgroundColor: Colors.red,
-                          ),
+                        setDlgState(
+                          () => capacityError =
+                              'Enter a whole number of seats (at least 1).',
                         );
                         return;
                       }
@@ -1082,6 +1105,22 @@ class _TablesScreenState extends State<TablesScreen> {
                           );
                         }
                       } catch (e) {
+                        if (e is BackendApiException &&
+                            e.fieldErrors.isNotEmpty) {
+                          setDlgState(() {
+                            for (final entry in e.fieldErrors.entries) {
+                              final field = entry.key.toLowerCase();
+                              if (field.contains('tablenumber') ||
+                                  field == 'number') {
+                                numberError = entry.value.toString();
+                              } else if (field.contains('capacity') ||
+                                  field.contains('seats')) {
+                                capacityError = entry.value.toString();
+                              }
+                            }
+                          });
+                          return;
+                        }
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
@@ -2033,8 +2072,36 @@ class _TablesScreenState extends State<TablesScreen> {
 
   // Quick Status Transition
   Future<void> _updateStatus(TableModel table, String newStatus) async {
-    await _tableRepository.updateTableStatus(table.id!, newStatus);
-    _loadTables();
+    try {
+      final current = table.status
+          .trim()
+          .toUpperCase()
+          .replaceAll(RegExp(r'[ -]+'), '_');
+      final target = newStatus
+          .trim()
+          .toUpperCase()
+          .replaceAll(RegExp(r'[ -]+'), '_');
+      const statusesThatMustBeCleanedFirst = {
+        'OCCUPIED',
+        'ORDERING',
+        'FOOD_PENDING',
+        'PREPARING',
+        'SERVED',
+        'BILL_REQUESTED',
+      };
+
+      if (target == 'AVAILABLE' &&
+          statusesThatMustBeCleanedFirst.contains(current)) {
+        await _tableRepository.updateTableStatus(table.id!, 'Cleaning');
+      }
+      await _tableRepository.updateTableStatus(table.id!, newStatus);
+      await _loadTables();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not update table status: $e')),
+      );
+    }
   }
 
   Future<void> _createQrSession(TableModel table) async {
@@ -2052,7 +2119,20 @@ class _TablesScreenState extends State<TablesScreen> {
       if (response is! Map || response['menuUrl'] == null) {
         throw const FormatException('Backend did not return a menu URL');
       }
-      final menuUrl = response['menuUrl'].toString();
+      final returnedMenuUrl = response['menuUrl'].toString();
+      final parsedMenuUrl = Uri.parse(returnedMenuUrl);
+      final menuUrl = kIsWeb && !parsedMenuUrl.hasScheme
+          ? Uri(
+              scheme: Uri.base.scheme,
+              host: Uri.base.host,
+              port: Uri.base.hasPort ? Uri.base.port : null,
+              path: parsedMenuUrl.path,
+              query: parsedMenuUrl.hasQuery ? parsedMenuUrl.query : null,
+              fragment: parsedMenuUrl.hasFragment
+                  ? parsedMenuUrl.fragment
+                  : null,
+            ).toString()
+          : returnedMenuUrl;
       if (!mounted) return;
       await showDialog<void>(
         context: context,

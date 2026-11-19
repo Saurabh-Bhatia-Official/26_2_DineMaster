@@ -31,6 +31,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 
 @Entity
 @Table(name = "products")
@@ -44,6 +45,12 @@ public class Product {
     @NotBlank(message = "Product name is required")
     @Size(max = 150, message = "Product name cannot exceed 150 characters")
     private String name;
+
+    @Column(name = "tenant_id", nullable = false)
+    private Long tenantId;
+
+    @Column(length = 40)
+    private String sku;
 
     @Column(columnDefinition = "TEXT")
     private String description;
@@ -61,6 +68,16 @@ public class Product {
     @NotBlank(message = "Product category is required")
     @Size(max = 100, message = "Product category cannot exceed 100 characters")
     private String category;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "category_id")
+    @JsonIgnore
+    private Category categoryRef;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "tax_slab_id", nullable = false)
+    @JsonIgnore
+    private TaxSlab taxSlab;
 
     @JdbcTypeCode(SqlTypes.SMALLINT)
     @Column(name = "is_veg", nullable = false)
@@ -113,6 +130,21 @@ public class Product {
     @Column(name = "video_path", columnDefinition = "TEXT")
     private String videoPath;
 
+    @Column(length = 30)
+    private String station;
+
+    @Column(name = "dietary_tags", columnDefinition = "TEXT")
+    private String dietaryTags;
+
+    @Column(columnDefinition = "TEXT")
+    private String badges;
+
+    @Column(name = "cooking_metadata", columnDefinition = "TEXT")
+    private String cookingMetadata;
+
+    @Column(name = "deleted_at")
+    private OffsetDateTime deletedAt;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "restaurant_id")
     private Restaurant restaurant;
@@ -135,6 +167,20 @@ public class Product {
     public void setName(String name) {
         this.name = name;
     }
+    public Long getTenantId() { return tenantId; }
+    public void setTenantId(Long tenantId) { this.tenantId = tenantId; }
+    public String getSku() { return sku; }
+    public void setSku(String sku) { this.sku = sku; }
+    public String getStation() { return station; }
+    public void setStation(String station) { this.station = station; }
+    public String getDietaryTags() { return dietaryTags; }
+    public void setDietaryTags(String dietaryTags) { this.dietaryTags = dietaryTags; }
+    public String getBadges() { return badges; }
+    public void setBadges(String badges) { this.badges = badges; }
+    public String getCookingMetadata() { return cookingMetadata; }
+    public void setCookingMetadata(String cookingMetadata) { this.cookingMetadata = cookingMetadata; }
+    public OffsetDateTime getDeletedAt() { return deletedAt; }
+    public void setDeletedAt(OffsetDateTime deletedAt) { this.deletedAt = deletedAt; }
 
     public String getDescription() {
         return description;
@@ -167,6 +213,12 @@ public class Product {
     public void setCategory(String category) {
         this.category = category;
     }
+    public Category getCategoryRef() { return categoryRef; }
+    public void setCategoryRef(Category categoryRef) { this.categoryRef = categoryRef; }
+    public TaxSlab getTaxSlab() { return taxSlab; }
+    public void setTaxSlab(TaxSlab taxSlab) { this.taxSlab = taxSlab; }
+    @JsonProperty("taxSlabId")
+    public Long getTaxSlabId() { return taxSlab == null ? null : taxSlab.getId(); }
 
     @JsonProperty("is_veg")
     public Integer getVeg() {

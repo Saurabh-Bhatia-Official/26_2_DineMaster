@@ -26,7 +26,9 @@ public record OrderItemResponse(
                 item.getId(),
                 item.getOrder() == null ? null : item.getOrder().getId(),
                 item.getProduct() == null ? null : item.getProduct().getId(),
-                item.getProduct() == null ? null : item.getProduct().getName(),
+                item.getProductNameSnapshot() == null
+                        ? (item.getProduct() == null ? null : item.getProduct().getName())
+                        : item.getProductNameSnapshot(),
                 item.getQuantity(),
                 item.getPrice(),
                 item.getNotes(),

@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import '../models/order_model.dart';
 import '../services/backend_api_client.dart';
 
@@ -8,7 +10,17 @@ class OrderApiRepository {
     BackendApiClient apiClient = const BackendApiClient(),
   }) : _apiClient = apiClient;
 
+  static String newIdempotencyKey() {
+    final random = Random.secure();
+    final suffix = List.generate(
+      24,
+      (_) => random.nextInt(16).toRadixString(16),
+    ).join();
+    return '${DateTime.now().microsecondsSinceEpoch}-$suffix';
+  }
+
   Future<OrderModel> createOrder({
+    required String idempotencyKey,
     required int restaurantId,
     required List<OrderItemModel> items,
     int? tableId,
@@ -37,7 +49,22 @@ class OrderApiRepository {
             },
           )
           .toList(),
-    });
+    }, headers: {'Idempotency-Key': idempotencyKey});
+    final data = Map<String, dynamic>.from(response as Map);
+    // CartResponse calls this orderId; normalize it for OrderModel.
+    data['id'] ??= data['orderId'];
+    return OrderModel.fromMap(data);
+  }
+
+  Future<OrderModel> confirmOrder(
+    int orderId, {
+    required String idempotencyKey,
+  }) async {
+    final response = await _apiClient.postJson(
+      '/api/v1/orders/$orderId/confirm',
+      {},
+      headers: {'Idempotency-Key': idempotencyKey},
+    );
     return OrderModel.fromMap(Map<String, dynamic>.from(response as Map));
   }
 

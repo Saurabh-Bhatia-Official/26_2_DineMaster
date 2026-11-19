@@ -28,6 +28,9 @@ public class InventoryItem {
     @Column(name = "low_stock_threshold", nullable = false, precision = 12, scale = 3)
     private BigDecimal lowStockThreshold = BigDecimal.ZERO;
 
+    @Column(name = "unit_cost", nullable = false, precision = 12, scale = 4)
+    private BigDecimal unitCost = BigDecimal.ZERO;
+
     @Column(name = "expiry_date")
     private java.time.LocalDate expiryDate;
 
@@ -74,6 +77,8 @@ public class InventoryItem {
     public void setLowStockThreshold(BigDecimal lowStockThreshold) {
         this.lowStockThreshold = lowStockThreshold;
     }
+    public BigDecimal getUnitCost() { return unitCost; }
+    public void setUnitCost(BigDecimal unitCost) { this.unitCost = unitCost; }
 
     public java.time.LocalDate getExpiryDate() {
         return expiryDate;

@@ -5,6 +5,7 @@ import com.dinemaster.diningtable.dto.TableStatusRequest;
 import com.dinemaster.diningtable.dto.WaiterAssignmentRequest;
 import com.dinemaster.diningtable.entity.DiningTable;
 import com.dinemaster.diningtable.repository.DiningTableRepository;
+import com.dinemaster.diningtable.service.WaiterAssignmentService;
 import com.dinemaster.diningtable.repository.FloorRepository;
 import com.dinemaster.orders.repository.OrderRepository;
 import com.dinemaster.restaurant.entity.Restaurant;
@@ -13,8 +14,6 @@ import com.dinemaster.security.BranchScopeService;
 import com.dinemaster.qr.dto.QrSessionResponse;
 import com.dinemaster.qr.service.TableSessionService;
 import com.dinemaster.user.entity.User;
-import com.dinemaster.user.repository.UserBranchRepository;
-import com.dinemaster.user.repository.UserRepository;
 import jakarta.validation.Valid;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -57,22 +56,20 @@ public class TableController {
     private final RestaurantRepository branches;
     private final FloorRepository floors;
     private final OrderRepository orders;
-    private final UserRepository users;
-    private final UserBranchRepository userBranches;
     private final BranchScopeService branchScope;
     private final TableSessionService tableSessions;
+    private final WaiterAssignmentService waiterAssignments;
 
     public TableController(DiningTableRepository tables, RestaurantRepository branches, FloorRepository floors,
-            OrderRepository orders, UserRepository users, UserBranchRepository userBranches,
-            BranchScopeService branchScope, TableSessionService tableSessions) {
+            OrderRepository orders, BranchScopeService branchScope, TableSessionService tableSessions,
+            WaiterAssignmentService waiterAssignments) {
         this.tables = tables;
         this.branches = branches;
         this.floors = floors;
         this.orders = orders;
-        this.users = users;
-        this.userBranches = userBranches;
         this.branchScope = branchScope;
         this.tableSessions = tableSessions;
+        this.waiterAssignments = waiterAssignments;
     }
 
     @GetMapping
@@ -94,6 +91,10 @@ public class TableController {
             String requestedStatus = normalizeStatus(status);
             result = result.stream().filter(table -> normalizeStatus(table.getStatus()).equals(requestedStatus)).toList();
         }
+        User actor = branchScope.requireUser(authentication);
+        if (com.dinemaster.role.Roles.matches(actor.getRole(), "WAITER"))
+            result = result.stream().filter(table -> table.getWaiter() == null
+                    || table.getWaiter().getId().equals(actor.getId())).toList();
         return ResponseEntity.ok(result.stream().map(this::toResponse).toList());
     }
 
@@ -103,6 +104,9 @@ public class TableController {
         DiningTable table = tables.findById(id).orElse(null);
         if (table == null || table.getRestaurant() == null) return ResponseEntity.notFound().build();
         branchScope.requireBranch(authentication, table.getRestaurant().getId());
+        User actor = branchScope.requireUser(authentication);
+        if (com.dinemaster.role.Roles.matches(actor.getRole(), "WAITER") && table.getWaiter() != null
+                && !table.getWaiter().getId().equals(actor.getId())) return ResponseEntity.notFound().build();
         return ResponseEntity.ok(toResponse(table));
     }
 
@@ -172,6 +176,7 @@ public class TableController {
     }
 
     @PutMapping("/{id}/waiter")
+    @Transactional
     @PreAuthorize("hasAuthority('table:assign_waiter')")
     public ResponseEntity<?> assignWaiter(@PathVariable Long id, @Valid @RequestBody WaiterAssignmentRequest request,
             Authentication authentication) {
@@ -180,18 +185,7 @@ public class TableController {
         Long branchId = table.getRestaurant().getId();
         branchScope.requireBranch(authentication, branchId);
         User actor = branchScope.requireUser(authentication);
-        if (request.waiterId() == null) {
-            table.setWaiter(null);
-        } else {
-            User waiter = users.findById(request.waiterId()).filter(User::isActive).orElse(null);
-            if (waiter == null || !java.util.Objects.equals(waiter.getTenantId(), actor.getTenantId())
-                    || !com.dinemaster.role.Roles.matches(waiter.getRole(), "WAITER")
-                    || !userBranches.isAssigned(waiter.getId(), branchId)) {
-                return error(HttpStatus.UNPROCESSABLE_ENTITY, "Waiter must be active and assigned to this branch");
-            }
-            table.setWaiter(waiter);
-        }
-        try { return ResponseEntity.ok(toResponse(tables.save(table))); }
+        try { return ResponseEntity.ok(toResponse(waiterAssignments.assign(id, request.waiterId(), actor))); }
         catch (OptimisticLockingFailureException ex) { return error(HttpStatus.CONFLICT, "Table changed concurrently"); }
     }
 

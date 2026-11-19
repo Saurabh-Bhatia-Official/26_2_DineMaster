@@ -2,10 +2,13 @@ package com.dinemaster.qr.service;
 
 import com.dinemaster.catalog.entity.Product;
 import com.dinemaster.catalog.repository.ProductRepository;
+import com.dinemaster.catalog.repository.BranchProductRepository;
 import com.dinemaster.orders.entity.Order;
 import com.dinemaster.orders.entity.OrderItem;
 import com.dinemaster.orders.repository.OrderItemRepository;
 import com.dinemaster.orders.repository.OrderRepository;
+import com.dinemaster.orders.service.OrderNumberService;
+import com.dinemaster.orders.service.TotalsCalculator;
 import com.dinemaster.qr.dto.GuestMenuResponse;
 import com.dinemaster.qr.dto.GuestOrderRequest;
 import com.dinemaster.qr.dto.GuestOrderResponse;
@@ -34,10 +37,14 @@ public class GuestOrderingService {
     private final OrderItemRepository orderItems;
     private final QrOrderIdempotencyRepository idempotencies;
     private final GuestServiceRequestRepository serviceRequests;
+    private final BranchProductRepository branchProducts;
+    private final OrderNumberService orderNumbers;
+    private final TotalsCalculator totals;
 
     public GuestOrderingService(TableSessionService tokenService, TableSessionRepository sessions,
             ProductRepository products, OrderRepository orders, OrderItemRepository orderItems,
-            QrOrderIdempotencyRepository idempotencies, GuestServiceRequestRepository serviceRequests) {
+            QrOrderIdempotencyRepository idempotencies, GuestServiceRequestRepository serviceRequests,
+            BranchProductRepository branchProducts, OrderNumberService orderNumbers, TotalsCalculator totals) {
         this.tokenService = tokenService;
         this.sessions = sessions;
         this.products = products;
@@ -45,6 +52,9 @@ public class GuestOrderingService {
         this.orderItems = orderItems;
         this.idempotencies = idempotencies;
         this.serviceRequests = serviceRequests;
+        this.branchProducts = branchProducts;
+        this.orderNumbers = orderNumbers;
+        this.totals = totals;
     }
 
     @Transactional(readOnly = true)
@@ -52,8 +62,15 @@ public class GuestOrderingService {
         TableSession session = tokenService.resolve(token);
         Long branchId = session.getBranch().getId();
         List<GuestMenuResponse.Item> items = products.findByRestaurant_IdAndAvailableTrue(branchId).stream()
-                .map(p -> new GuestMenuResponse.Item(p.getId(), p.getName(), p.getDescription(),
-                        p.getCategory(), p.getPrice(), p.getImagePath(), p.getVeg())).toList();
+                .filter(p -> p.getDeletedAt() == null)
+                .filter(p -> branchProducts.findByBranchIdAndProductId(branchId, p.getId())
+                        .map(com.dinemaster.catalog.entity.BranchProduct::isAvailable).orElse(true))
+                .map(p -> {
+                    var config = branchProducts.findByBranchIdAndProductId(branchId, p.getId()).orElse(null);
+                    BigDecimal price = config != null && config.getPriceOverride() != null ? config.getPriceOverride() : p.getPrice();
+                    return new GuestMenuResponse.Item(p.getId(), p.getName(), p.getDescription(),
+                            p.getCategory(), price, p.getImagePath(), p.getVeg());
+                }).toList();
         return new GuestMenuResponse(session.getTable().getTableNumber(), items);
     }
 
@@ -73,6 +90,8 @@ public class GuestOrderingService {
 
         Order order = new Order();
         order.setRestaurant(session.getBranch());
+        order.setTenantId(session.getBranch().getTenantId());
+        order.setOrderNo(orderNumbers.next(session.getBranch()));
         order.setDiningTable(session.getTable());
         order.setTableSession(session);
         order.setType("Dine In");
@@ -82,24 +101,29 @@ public class GuestOrderingService {
         order.setNotes(request.notes());
         order.setDiscountAmount(BigDecimal.ZERO);
 
-        BigDecimal total = BigDecimal.ZERO;
         List<OrderItem> items = new ArrayList<>();
         for (GuestOrderRequest.Item requested : request.items()) {
             Product product = products.findByIdAndRestaurant_Id(requested.productId(), session.getBranch().getId())
-                    .filter(Product::isAvailable)
+                    .filter(p -> p.isAvailable() && p.getDeletedAt() == null)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
                             "One or more menu items are unavailable"));
+            var branchProduct = branchProducts.findByBranchIdAndProductId(session.getBranch().getId(), product.getId()).orElse(null);
+            if (branchProduct != null && !branchProduct.isAvailable()) throw new ResponseStatusException(
+                    HttpStatus.UNPROCESSABLE_ENTITY, "One or more menu items are unavailable");
+            BigDecimal price = branchProduct != null && branchProduct.getPriceOverride() != null
+                    ? branchProduct.getPriceOverride() : product.getPrice();
             OrderItem item = new OrderItem();
             item.setOrder(order);
             item.setProduct(product);
+            item.setProductNameSnapshot(product.getName());
             item.setQuantity(requested.quantity());
-            item.setPrice(product.getPrice());
+            item.setPrice(price);
+            item.setTaxRateSnapshot(product.getGstPercentage());
             item.setNotes(requested.notes());
             item.setStatus("Pending");
             items.add(item);
-            total = total.add(product.getPrice().multiply(BigDecimal.valueOf(requested.quantity())));
         }
-        order.setTotalAmount(total);
+        totals.recalculate(order, items);
         Order saved = orders.saveAndFlush(order);
         items.forEach(item -> item.setOrder(saved));
         orderItems.saveAll(items);

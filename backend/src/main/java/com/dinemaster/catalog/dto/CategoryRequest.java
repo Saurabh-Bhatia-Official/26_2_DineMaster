@@ -13,6 +13,8 @@ public class CategoryRequest {
     @NotBlank(message = "Category name is required")
     @Size(max = 100, message = "Category name cannot exceed 100 characters")
     private String name;
+    private Integer sortOrder;
+    private Boolean active;
 
     public CategoryRequest() {
     }
@@ -24,4 +26,8 @@ public class CategoryRequest {
     public void setName(String name) {
         this.name = name;
     }
+    public Integer getSortOrder() { return sortOrder; }
+    public void setSortOrder(Integer sortOrder) { this.sortOrder = sortOrder; }
+    public Boolean getActive() { return active; }
+    public void setActive(Boolean active) { this.active = active; }
 }

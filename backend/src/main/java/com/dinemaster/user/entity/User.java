@@ -50,6 +50,16 @@ public class User {
     @Column(name = "failed_login_attempts", nullable = false)
     private short failedLoginAttempts;
 
+    @JsonIgnore
+    @Column(name = "pin_hash", length = 255)
+    private String pinHash;
+
+    @Column(name = "pin_failed_attempts", nullable = false)
+    private short pinFailedAttempts;
+
+    @Column(name = "pin_locked_until")
+    private OffsetDateTime pinLockedUntil;
+
     @Column(name = "locked_until")
     private OffsetDateTime lockedUntil;
 
@@ -145,6 +155,12 @@ public class User {
     public short getFailedLoginAttempts() { return failedLoginAttempts; }
 
     public void setFailedLoginAttempts(short failedLoginAttempts) { this.failedLoginAttempts = failedLoginAttempts; }
+    public String getPinHash() { return pinHash; }
+    public void setPinHash(String value) { pinHash = value; }
+    public short getPinFailedAttempts() { return pinFailedAttempts; }
+    public void setPinFailedAttempts(short value) { pinFailedAttempts = value; }
+    public OffsetDateTime getPinLockedUntil() { return pinLockedUntil; }
+    public void setPinLockedUntil(OffsetDateTime value) { pinLockedUntil = value; }
 
     public OffsetDateTime getLockedUntil() { return lockedUntil; }
 

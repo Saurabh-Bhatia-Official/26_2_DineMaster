@@ -26,4 +26,12 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     List<Product> findByCategoryIgnoreCase(String category);
 
     List<Product> findByRestaurant_IdAndCategoryIgnoreCase(Long restaurantId, String category);
+    long countByCategoryRef_Id(Long categoryId);
+    long countByCategoryRef_IdAndAvailableTrue(Long categoryId);
+    List<Product> findByRestaurant_IdAndCategoryRef_IdAndAvailableTrue(Long restaurantId, Long categoryId);
+    List<Product> findByTenantIdAndDeletedAtIsNullOrderByNameAsc(Long tenantId);
+    List<Product> findByRestaurant_IdAndDeletedAtIsNullOrderByNameAsc(Long restaurantId);
+    Optional<Product> findByIdAndTenantIdAndDeletedAtIsNull(Long id, Long tenantId);
+    boolean existsByTenantIdAndSkuIgnoreCaseAndDeletedAtIsNull(Long tenantId, String sku);
+    boolean existsByTenantIdAndSkuIgnoreCaseAndIdNotAndDeletedAtIsNull(Long tenantId, String sku, Long id);
 }
