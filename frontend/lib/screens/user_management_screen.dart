@@ -147,8 +147,10 @@ class _UserManagementScreenState extends State<UserManagementScreen>
         api.getJson('/api/v1/roles/permissions'),
       ]);
       final roles = results[0] is List
-          ? (results[0] as List).whereType<Map>()
-              .map((role) => Map<String, dynamic>.from(role)).toList()
+          ? (results[0] as List)
+                .whereType<Map>()
+                .map((role) => Map<String, dynamic>.from(role))
+                .toList()
           : <Map<String, dynamic>>[];
       final permissions = results[1] is List
           ? (results[1] as List).map((value) => value.toString()).toList()
@@ -160,7 +162,8 @@ class _UserManagementScreenState extends State<UserManagementScreen>
         builder: (dialogContext) {
           var selectedRole = roles.first['code'].toString();
           var grants = (roles.first['permissions'] as List? ?? [])
-              .map((value) => value.toString()).toSet();
+              .map((value) => value.toString())
+              .toSet();
           var saving = false;
           return StatefulBuilder(
             builder: (context, setDialogState) => AlertDialog(
@@ -173,10 +176,14 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                     DropdownButtonFormField<String>(
                       value: selectedRole,
                       decoration: const InputDecoration(labelText: 'Role'),
-                      items: roles.map((role) => DropdownMenuItem(
-                        value: role['code'].toString(),
-                        child: Text(role['name'].toString()),
-                      )).toList(),
+                      items: roles
+                          .map(
+                            (role) => DropdownMenuItem(
+                              value: role['code'].toString(),
+                              child: Text(role['name'].toString()),
+                            ),
+                          )
+                          .toList(),
                       onChanged: (value) {
                         if (value == null) return;
                         final role = roles.firstWhere(
@@ -185,25 +192,30 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                         setDialogState(() {
                           selectedRole = value;
                           grants = (role['permissions'] as List? ?? [])
-                              .map((item) => item.toString()).toSet();
+                              .map((item) => item.toString())
+                              .toSet();
                         });
                       },
                     ),
                     const SizedBox(height: 8),
                     Expanded(
                       child: ListView(
-                        children: permissions.map((permission) => CheckboxListTile(
-                          dense: true,
-                          title: Text(permission),
-                          value: grants.contains(permission),
-                          onChanged: (value) => setDialogState(() {
-                            if (value == true) {
-                              grants.add(permission);
-                            } else {
-                              grants.remove(permission);
-                            }
-                          }),
-                        )).toList(),
+                        children: permissions
+                            .map(
+                              (permission) => CheckboxListTile(
+                                dense: true,
+                                title: Text(permission),
+                                value: grants.contains(permission),
+                                onChanged: (value) => setDialogState(() {
+                                  if (value == true) {
+                                    grants.add(permission);
+                                  } else {
+                                    grants.remove(permission);
+                                  }
+                                }),
+                              ),
+                            )
+                            .toList(),
                       ),
                     ),
                   ],
@@ -215,25 +227,37 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                   child: const Text('Cancel'),
                 ),
                 ElevatedButton(
-                  onPressed: saving ? null : () async {
-                    setDialogState(() => saving = true);
-                    try {
-                      await api.patchJson(
-                        '/api/v1/roles/$selectedRole/permissions',
-                        {'permissions': grants.toList()},
-                      );
-                      if (dialogContext.mounted) Navigator.pop(dialogContext);
-                    } catch (e) {
-                      setDialogState(() => saving = false);
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Could not save permissions: $e')),
-                        );
-                      }
-                    }
-                  },
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          setDialogState(() => saving = true);
+                          try {
+                            await api.patchJson(
+                              '/api/v1/roles/$selectedRole/permissions',
+                              {'permissions': grants.toList()},
+                            );
+                            if (dialogContext.mounted) {
+                              Navigator.pop(dialogContext);
+                            }
+                          } catch (e) {
+                            setDialogState(() => saving = false);
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'Could not save permissions: $e',
+                                  ),
+                                ),
+                              );
+                            }
+                          }
+                        },
                   child: saving
-                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
                       : const Text('Save'),
                 ),
               ],
@@ -646,9 +670,11 @@ class _UserManagementScreenState extends State<UserManagementScreen>
       await _userRepository.reactivateUser(id);
       await _loadUsers();
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not reactivate staff: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not reactivate staff: $e')),
+        );
+      }
     }
   }
 
@@ -665,7 +691,9 @@ class _UserManagementScreenState extends State<UserManagementScreen>
             TextField(
               controller: passwordController,
               obscureText: true,
-              decoration: const InputDecoration(labelText: 'Temporary password (10+ characters)'),
+              decoration: const InputDecoration(
+                labelText: 'Temporary password (10+ characters)',
+              ),
             ),
             TextField(
               controller: reasonController,
@@ -674,8 +702,14 @@ class _UserManagementScreenState extends State<UserManagementScreen>
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Reset')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Reset'),
+          ),
         ],
       ),
     );
@@ -686,13 +720,21 @@ class _UserManagementScreenState extends State<UserManagementScreen>
         passwordController.text,
         reason: reasonController.text,
       );
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Temporary password set; staff must change it at next login.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Temporary password set; staff must change it at next login.',
+            ),
+          ),
+        );
+      }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not reset password: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not reset password: $e')));
+      }
     }
   }
 
@@ -716,15 +758,24 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                     itemCount: entries.length,
                     itemBuilder: (context, index) {
                       final row = entries[index];
-                      final map = row is Map ? Map<String, dynamic>.from(row) : <String, dynamic>{};
+                      final map = row is Map
+                          ? Map<String, dynamic>.from(row)
+                          : <String, dynamic>{};
                       final primary = audit
                           ? (map['action'] ?? map['eventType'] ?? 'Audit event')
                           : (map['deviceId'] ?? 'Session');
                       final secondary = map.entries
-                          .where((entry) => entry.key != 'action' && entry.key != 'eventType')
+                          .where(
+                            (entry) =>
+                                entry.key != 'action' &&
+                                entry.key != 'eventType',
+                          )
                           .map((entry) => '${entry.key}: ${entry.value}')
                           .join(' · ');
-                      return ListTile(title: Text(primary.toString()), subtitle: Text(secondary));
+                      return ListTile(
+                        title: Text(primary.toString()),
+                        subtitle: Text(secondary),
+                      );
                     },
                   ),
           ),
@@ -737,21 +788,30 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                     if (dialogContext.mounted) Navigator.pop(dialogContext);
                     await _loadUsers();
                   } catch (e) {
-                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Could not revoke sessions: $e')),
-                    );
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Could not revoke sessions: $e'),
+                        ),
+                      );
+                    }
                   }
                 },
                 child: const Text('Revoke all'),
               ),
-            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close')),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Close'),
+            ),
           ],
         ),
       );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not load staff records: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not load staff records: $e')),
+        );
+      }
     }
   }
 

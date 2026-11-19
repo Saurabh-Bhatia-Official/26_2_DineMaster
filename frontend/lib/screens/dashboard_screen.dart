@@ -1,5 +1,5 @@
-
 import 'dart:convert';
+
 import 'package:dine_master/core/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -13,8 +13,13 @@ import '../services/backend_api_client.dart';
 
 class DashboardScreen extends StatefulWidget {
   final Widget child;
+  final Future<List<Map<String, dynamic>>> Function()? restaurantsLoader;
 
-  const DashboardScreen({super.key, required this.child});
+  const DashboardScreen({
+    super.key,
+    required this.child,
+    this.restaurantsLoader,
+  });
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -130,7 +135,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _loadRestaurants() async {
     try {
       final List<Map<String, dynamic>> restaurants =
-          await RestaurantRepository().getRestaurants();
+          await (widget.restaurantsLoader?.call() ??
+              RestaurantRepository().getRestaurants());
 
       if (!mounted) return;
 
@@ -296,21 +302,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildSidebar(BuildContext context, int activeIndex) {
     final visibleNavItems = _navItems.where(_canOpen).toList();
     return Container(
-      width: 260,
+      width: 272,
       decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF1E1E2F), Color(0xFF0F0F1A)],
+          colors: [Color(0xFF292B2D), Color(0xFF191B1D)],
         ),
       ),
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.fromLTRB(22, 24, 20, 22),
             child: Row(
               children: [
-                Image.asset('assets/images/logo.jpg', height: 40, width: 40),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(11),
+                  child: Image.asset(
+                    'assets/images/logo.jpg',
+                    height: 42,
+                    width: 42,
+                    fit: BoxFit.cover,
+                  ),
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -320,9 +334,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         'DINE MASTER',
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: .8,
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -352,39 +366,56 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
           const Divider(color: Colors.white12, height: 1),
-          ListTile(
-            leading: const CircleAvatar(
-              backgroundColor: Colors.white,
-              child: Icon(Icons.person, color: AppColors.primary),
-            ),
-            title: Text(
-              _role.replaceAll('_', ' '),
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: .055),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.white.withValues(alpha: .08)),
               ),
-            ),
-            subtitle: Text(
-              _username,
-              style: const TextStyle(color: Colors.white70, fontSize: 11),
-            ),
-            trailing: IconButton(
-              icon: const Icon(
-                Icons.logout,
-                color: Colors.white70,
-                size: 20,
-              ),
-              onPressed: () async {
-                await UserRepository().logout();
+              child: ListTile(
+                dense: true,
+                leading: const CircleAvatar(
+                  radius: 18,
+                  backgroundColor: Colors.white,
+                  child: Icon(
+                    Icons.person_rounded,
+                    color: AppColors.primary,
+                    size: 19,
+                  ),
+                ),
+                title: const Text(
+                  'Owner Account',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+                subtitle: const Text(
+                  'System Admin',
+                  style: TextStyle(color: Colors.white60, fontSize: 10),
+                ),
+                trailing: IconButton(
+                  tooltip: 'Log out',
+                  icon: const Icon(
+                    Icons.logout_rounded,
+                    color: Colors.white70,
+                    size: 18,
+                  ),
+                  onPressed: () async {
+                    await UserRepository().logout();
 
-                if (context.mounted) {
-                  context.go('/');
-                }
-              },
+                    if (context.mounted) {
+                      context.go('/');
+                    }
+                  },
+                ),
+              ),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
         ],
       ),
     );
@@ -425,7 +456,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Scaffold(
       drawer: !isDesktop
           ? Drawer(
-              backgroundColor: const Color(0xFF1E1E2F),
+              backgroundColor: AppColors.charcoalDeep,
               child: _buildSidebar(context, activeIndex),
             )
           : null,
@@ -446,56 +477,116 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                         )
                       : null,
-                  title: Text(
-                    visibleNavItems.isEmpty || activeIndex < 0
-                        ? 'Dine Master'
-                        : visibleNavItems[activeIndex]['label'] as String,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  title: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _navItems[activeIndex]['label'] as String,
+                        style: const TextStyle(
+                          color: AppColors.ink,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -.25,
+                        ),
+                      ),
+                      if (isDesktop)
+                        const Text(
+                          'OWNER WORKSPACE',
+                          style: TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 8,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.4,
+                          ),
+                        ),
+                    ],
+                  ),
+                  flexibleSpace: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border(
+                        bottom: BorderSide(
+                          color: AppColors.line.withValues(alpha: .8),
+                        ),
+                      ),
+                    ),
                   ),
                   actions: [
                     if (_restaurants.isNotEmpty)
-                      DropdownButtonHideUnderline(
-                        child: DropdownButton<int>(
-                          value: _selectedRestaurantId,
-                          isDense: true,
-                          items: _restaurants.map((restaurant) {
-                            return DropdownMenuItem<int>(
-                              value: (restaurant['id'] as num).toInt(),
-                              child: ConstrainedBox(
-                                constraints: BoxConstraints(
-                                  maxWidth: isDesktop ? 180 : 120,
-                                ),
-                                child: Text(
-                                  restaurant['name']?.toString() ?? '',
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 13,
-                                  ),
-                                ),
+                      Container(
+                        margin: const EdgeInsets.symmetric(vertical: 15),
+                        padding: const EdgeInsets.only(left: 10, right: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFAF8F6),
+                          borderRadius: BorderRadius.circular(11),
+                          border: Border.all(color: AppColors.line),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.storefront_outlined,
+                              color: AppColors.orange,
+                              size: 17,
+                            ),
+                            const SizedBox(width: 6),
+                            DropdownButtonHideUnderline(
+                              child: DropdownButton<int>(
+                                value: _selectedRestaurantId,
+                                isDense: true,
+                                iconSize: 17,
+                                borderRadius: BorderRadius.circular(12),
+                                items: _restaurants.map((restaurant) {
+                                  return DropdownMenuItem<int>(
+                                    value: (restaurant['id'] as num).toInt(),
+                                    child: ConstrainedBox(
+                                      constraints: BoxConstraints(
+                                        maxWidth: isDesktop ? 176 : 104,
+                                      ),
+                                      child: Text(
+                                        restaurant['name']?.toString() ?? '',
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: AppColors.ink,
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                }).toList(),
+                                onChanged: (value) {
+                                  setState(() {
+                                    _selectedRestaurantId = value;
+
+                                    if (!kIsWeb) {
+                                      DatabaseHelper.currentRestaurantId =
+                                          value;
+                                    }
+
+                                    if (value != null) {
+                                      ApiMode.setCurrentRestaurantId(value);
+                                    }
+                                  });
+                                },
                               ),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            setState(() {
-                              _selectedRestaurantId = value;
-
-                              if (!kIsWeb) {
-                                DatabaseHelper.currentRestaurantId = value;
-                              }
-
-                              if (value != null) {
-                                ApiMode.setCurrentRestaurantId(value);
-                              }
-                            });
-                          },
+                            ),
+                          ],
                         ),
                       ),
-                    const SizedBox(width: 4),
+                    const SizedBox(width: 8),
                     IconButton(
-                      icon: const Icon(Icons.notifications_outlined, size: 20),
-                      padding: const EdgeInsets.all(8),
-                      constraints: const BoxConstraints(),
+                      tooltip: 'Notifications',
+                      icon: const Icon(
+                        Icons.notifications_none_rounded,
+                        size: 21,
+                      ),
+                      style: IconButton.styleFrom(
+                        backgroundColor: const Color(0xFFFAF8F6),
+                        foregroundColor: AppColors.ink,
+                        side: const BorderSide(color: AppColors.line),
+                      ),
                       onPressed: () {},
                     ),
                     if (!isDesktop)
@@ -517,7 +608,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 Expanded(
                   child: Container(
-                    color: const Color(0xFFF8F9FA),
+                    color: AppColors.background,
                     child: KeyedSubtree(
                       key: ValueKey(_selectedRestaurantId),
                       child: !_accessLoaded
@@ -558,11 +649,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     categories.forEach((categoryName, indices) {
       widgets.add(
         Padding(
-          padding: const EdgeInsets.only(left: 20, top: 16, bottom: 8),
+          padding: const EdgeInsets.fromLTRB(20, 17, 14, 8),
           child: Text(
             categoryName.toUpperCase(),
             style: const TextStyle(
-              color: Colors.white38,
+              color: Color(0xFF9A9C9E),
               fontSize: 10,
               fontWeight: FontWeight.bold,
               letterSpacing: 1.5,
@@ -577,37 +668,68 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         widgets.add(
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-            child: ListTile(
-              dense: true,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-              leading: Icon(
-                isSelected
-                    ? item['selectedIcon'] as IconData
-                    : item['icon'] as IconData,
-                color: isSelected ? Colors.white : Colors.white60,
-                size: 20,
-              ),
-              title: Text(
-                item['label'] as String,
-                style: TextStyle(
-                  color: isSelected ? Colors.white : Colors.white70,
-                  fontSize: 13.5,
-                  fontWeight:
-                      isSelected ? FontWeight.bold : FontWeight.normal,
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 2),
+            child: Container(
+              decoration: isSelected
+                  ? BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          AppColors.orange.withValues(alpha: .24),
+                          AppColors.orange.withValues(alpha: .10),
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(11),
+                      border: Border.all(
+                        color: AppColors.orange.withValues(alpha: .24),
+                      ),
+                    )
+                  : null,
+              child: ListTile(
+                dense: true,
+                minVerticalPadding: 2,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                minLeadingWidth: 30,
+                horizontalTitleGap: 9,
+                visualDensity: const VisualDensity(vertical: -1),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(11),
                 ),
-              ),
-              selected: isSelected,
-              selectedTileColor: Colors.white.withAlpha(25),
-              onTap: () {
-                if (!isDesktop) {
-                  Navigator.of(context).pop();
-                }
+                leading: Icon(
+                  isSelected
+                      ? item['selectedIcon'] as IconData
+                      : item['icon'] as IconData,
+                  color: isSelected ? const Color(0xFFFFA476) : Colors.white60,
+                  size: 19,
+                ),
+                title: Text(
+                  item['label'] as String,
+                  style: TextStyle(
+                    color: isSelected ? Colors.white : Colors.white70,
+                    fontSize: 12.5,
+                    fontWeight: isSelected
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                  ),
+                ),
+                selected: isSelected,
+                selectedTileColor: Colors.transparent,
+                splashColor: AppColors.orange.withValues(alpha: .16),
+                hoverColor: Colors.white.withValues(alpha: .07),
+                trailing: isSelected
+                    ? const Icon(
+                        Icons.circle,
+                        color: Color(0xFFFFA476),
+                        size: 6,
+                      )
+                    : null,
+                onTap: () {
+                  if (!isDesktop) {
+                    Navigator.of(context).pop();
+                  }
 
-                context.go(item['route'] as String);
-              },
+                  context.go(item['route'] as String);
+                },
+              ),
             ),
           ),
         );
