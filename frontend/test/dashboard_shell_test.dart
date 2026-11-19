@@ -11,7 +11,11 @@ void main() {
   late GoRouter router;
 
   setUp(() {
-    SharedPreferences.setMockInitialValues({'username': 'Asha'});
+    SharedPreferences.setMockInitialValues({
+      'username': 'Asha',
+      'role': 'OWNER',
+      'use_backend_api': false,
+    });
     DatabaseHelper.currentRestaurantId = null;
   });
 

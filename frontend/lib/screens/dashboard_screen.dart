@@ -29,7 +29,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Map<String, dynamic>> _restaurants = [];
   int? _selectedRestaurantId;
   String _username = 'User';
-  String _role = 'STAFF';
   Set<String> _permissions = {};
   bool _accessLoaded = false;
 
@@ -66,7 +65,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           permissions = (response['permissions'] as List)
               .map((permission) => permission.toString())
               .toSet();
-          await prefs.setString('permissions', jsonEncode(permissions.toList()));
+          await prefs.setString(
+            'permissions',
+            jsonEncode(permissions.toList()),
+          );
           permissionsResolved = true;
         }
       } catch (e) {
@@ -81,7 +83,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     setState(() {
       _username = prefs.getString('username') ?? 'User';
-      _role = role;
       _permissions = permissions;
       _accessLoaded = true;
     });
@@ -92,16 +93,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case 'OWNER':
       case 'MANAGER':
         return {
-          'dashboard:view', 'table:view', 'order:create', 'order:view',
-          'kot:view', 'bill:generate', 'menu:manage', 'menu:view',
-          'inventory:view', 'expense:view', 'customer:view', 'user:view',
-          'branch:view', 'settings:view', 'report:sales', 'report:kitchen',
-          'report:inventory', 'report:finance',
+          'dashboard:view',
+          'table:view',
+          'order:create',
+          'order:view',
+          'kot:view',
+          'bill:generate',
+          'menu:manage',
+          'menu:view',
+          'inventory:view',
+          'expense:view',
+          'customer:view',
+          'user:view',
+          'branch:view',
+          'settings:view',
+          'report:sales',
+          'report:kitchen',
+          'report:inventory',
+          'report:finance',
         };
       case 'CASHIER':
         return {
-          'table:view', 'order:create', 'order:view', 'kot:view',
-          'bill:generate', 'menu:view', 'customer:view', 'report:sales',
+          'table:view',
+          'order:create',
+          'order:view',
+          'kot:view',
+          'bill:generate',
+          'menu:view',
+          'customer:view',
+          'report:sales',
         };
       case 'WAITER':
         return {
@@ -121,7 +141,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           'report:kitchen',
         };
       case 'INVENTORY_MANAGER':
-        return {'dashboard:view', 'inventory:view', 'menu:view', 'report:inventory', 'branch:view'};
+        return {
+          'dashboard:view',
+          'inventory:view',
+          'menu:view',
+          'report:inventory',
+          'branch:view',
+        };
       default:
         return {};
     }
@@ -271,7 +297,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
       'label': 'Analytics',
       'route': '/dashboard/analytics',
       'category': 'Admin',
-      'permissions': <String>['report:sales', 'report:kitchen', 'report:inventory', 'report:finance'],
+      'permissions': <String>[
+        'report:sales',
+        'report:kitchen',
+        'report:inventory',
+        'report:finance',
+      ],
     },
     {
       'icon': Icons.people_outline,
@@ -482,7 +513,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _navItems[activeIndex]['label'] as String,
+                        activeIndex >= 0 && activeIndex < visibleNavItems.length
+                            ? visibleNavItems[activeIndex]['label'] as String
+                            : 'Workspace',
                         style: const TextStyle(
                           color: AppColors.ink,
                           fontSize: 16,
@@ -490,16 +523,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           letterSpacing: -.25,
                         ),
                       ),
-                      if (isDesktop)
-                        const Text(
-                          'OWNER WORKSPACE',
-                          style: TextStyle(
-                            color: AppColors.muted,
-                            fontSize: 8,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 1.4,
-                          ),
-                        ),
                     ],
                   ),
                   flexibleSpace: DecoratedBox(
