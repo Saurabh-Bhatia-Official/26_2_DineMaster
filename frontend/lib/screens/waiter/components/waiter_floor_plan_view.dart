@@ -101,6 +101,28 @@ class WaiterFloorPlanView extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.touch_app_outlined, color: AppColors.primary),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Choose an available table to start. For an occupied table, open it to continue its order.',
+                    style: TextStyle(fontSize: 13, height: 1.35),
+                  ),
+                ),
+              ],
+            ),
+          ),
           // Section & Status Filters
           Row(
             children: [

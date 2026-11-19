@@ -1616,6 +1616,24 @@
           }
         },
         {
+          "name": "Generate bill (saves invoiceNo)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/orders/{{orderId}}/bill",
+            "description": "Requires bill:generate. No body. Requires a confirmed order whose items are all served or cancelled; returns invoice number, totals and BILLED status."
+          }
+        },
+        {
+          "name": "Get bill receipt data",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/orders/{{orderId}}/bill",
+            "description": "Requires bill:reprint. Returns saved invoice metadata, totals, payment info and line items for receipt preview or printing."
+          }
+        },
+        {
           "name": "Record payment",
           "request": {
             "method": "POST",
@@ -1960,9 +1978,23 @@
           }
         },
         {
-          "name": "Create KOT (saves kotId)",
+          "name": "Confirm order (generates KOTs)",
           "request": {
             "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{orderId}}/confirm",
+            "description": "Requires order:create and a valid Idempotency-Key. Confirmation generates KOTs automatically, one per station for the order round. Then use List KOTs for order to retrieve them."
+          }
+        },
+        {
+          "name": "Update KOT status",
+          "request": {
+            "method": "PUT",
             "header": [
               {
                 "key": "Content-Type",
@@ -1971,36 +2003,15 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"orderId\": {{orderId}},\n  \"kotNumber\": \"KOT-001\",\n  \"priority\": \"Normal\",\n  \"estimatedTime\": 20\n}",
+              "raw": "{\n  \"status\": \"COOKING\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
             },
-            "url": "{{baseUrl}}/api/v1/kitchen-tickets",
-            "description": "Requires order:create. Body matches CreateKotRequest: orderId required; kotNumber optional (auto KOT-<timestamp>); priority default Normal; estimatedTime positive integer. With a blank kotNumber, an existing Pending/Cooking ticket is reused. Saves kotId."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "const body = pm.response.json();",
-                  "if (body.id) pm.collectionVariables.set('kotId', body.id);"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Update KOT status",
-          "request": {
-            "method": "PATCH",
-            "header": [],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/kitchen-tickets/{{kotId}}/status?value=Cooking",
+              "raw": "{{baseUrl}}/api/v1/kitchen-tickets/{{kotId}}/items/{{orderItemId}}/status",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -2009,15 +2020,11 @@
                 "v1",
                 "kitchen-tickets",
                 "{{kotId}}",
+                "items",
+                "{{orderItemId}}",
                 "status"
               ],
-              "query": [
-                {
-                  "key": "value",
-                  "value": "Cooking",
-                  "description": "Pending | Cooking | Preparing | Ready | Served | Completed | Cancelled"
-                }
-              ]
+              "query": []
             },
             "description": "Requires kot:update_status. value is a query parameter. Preparing maps to Cooking and Completed maps to Served. Transitions are role-gated: CHEF Pendingâ†’Cookingâ†’Ready, WAITER Readyâ†’Served, MANAGER/OWNER may cancel."
           }

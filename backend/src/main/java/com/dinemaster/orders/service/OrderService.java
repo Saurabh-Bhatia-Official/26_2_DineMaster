@@ -327,6 +327,97 @@ public class OrderService {
         }
 
         @Transactional
+        public java.util.Map<String, Object> generateBill(Long orderId, User actor) {
+                Order order = orderRepository.findForUpdateById(orderId)
+                                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found"));
+                java.util.List<java.util.Map<String, Object>> existing = jdbc.queryForList("""
+                                SELECT id, invoice_no AS "invoiceNo", order_id AS "orderId", issued_at AS "issuedAt",
+                                       subtotal, tax_amount AS "taxAmount", discount_amount AS "discountAmount",
+                                       total_amount AS total, 'BILLED' AS status
+                                FROM invoices WHERE order_id = ?
+                                """, orderId);
+                if (!existing.isEmpty()) return existing.getFirst();
+                if (!"CONFIRMED".equalsIgnoreCase(order.getStatus()))
+                        throw new ResponseStatusException(HttpStatus.CONFLICT, "Only confirmed orders can be billed");
+
+                List<OrderItem> lines = orderItemRepository.findByOrder_Id(orderId);
+                if (lines.isEmpty() || lines.stream().anyMatch(item -> {
+                        String status = item.getStatus() == null ? "" : item.getStatus().trim().toUpperCase(java.util.Locale.ROOT);
+                        return !status.equals("SERVED") && !status.equals("CANCELLED");
+                })) {
+                        throw new ResponseStatusException(HttpStatus.CONFLICT,
+                                        "All order items must be served or cancelled before billing");
+                }
+
+                var branch = order.getRestaurant();
+                java.time.ZoneId zone;
+                try { zone = java.time.ZoneId.of(branch.getTimezone()); }
+                catch (Exception ignored) { zone = java.time.ZoneId.of("Asia/Kolkata"); }
+                java.time.LocalDate date = java.time.LocalDate.now(zone);
+                int startYear = date.getMonthValue() >= 4 ? date.getYear() : date.getYear() - 1;
+                String financialYear = String.format(java.util.Locale.ROOT, "%02d-%02d", startYear % 100,
+                                (startYear + 1) % 100);
+                Integer sequence = jdbc.queryForObject("""
+                                INSERT INTO invoice_counters(branch_id, financial_year, last_value) VALUES (?, ?, 1)
+                                ON CONFLICT (branch_id, financial_year) DO UPDATE
+                                  SET last_value = invoice_counters.last_value + 1
+                                RETURNING last_value
+                                """, Integer.class, branch.getId(), financialYear);
+                String invoiceNo = branch.getCode() + "/" + financialYear + "/"
+                                + String.format(java.util.Locale.ROOT, "%06d", sequence);
+                jdbc.update("""
+                                INSERT INTO invoices(tenant_id, branch_id, order_id, invoice_no, subtotal,
+                                                     tax_amount, discount_amount, total_amount)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                """, order.getTenantId(), branch.getId(), orderId, invoiceNo, order.getSubtotal(),
+                                order.getTaxAmount(), order.getDiscountAmount(), order.getTotalAmount());
+
+                stateMachine.requireTransition(order.getStatus(), "BILLED");
+                order.setStatus("BILLED");
+                orderRepository.save(order);
+                audit.transition(orderId, "ORDER", orderId, "CONFIRMED", "BILLED", actor.getId(), null, null, null);
+                audit.event(orderId, "order.billed", java.util.Map.of("invoiceNo", invoiceNo,
+                                "total", order.getTotalAmount()));
+                return jdbc.queryForMap("""
+                                SELECT id, invoice_no AS "invoiceNo", order_id AS "orderId", issued_at AS "issuedAt",
+                                       subtotal, tax_amount AS "taxAmount", discount_amount AS "discountAmount",
+                                       total_amount AS total, 'BILLED' AS status
+                                FROM invoices WHERE order_id = ?
+                                """, orderId);
+        }
+
+        @Transactional(readOnly = true)
+        public java.util.Map<String, Object> getBill(Long orderId) {
+                java.util.Map<String, Object> bill;
+                try {
+                        bill = jdbc.queryForMap("""
+                                        SELECT i.id, i.invoice_no AS "invoiceNo", i.issued_at AS "issuedAt",
+                                               i.subtotal, i.tax_amount AS "taxAmount",
+                                               i.discount_amount AS "discountAmount", i.total_amount AS total,
+                                               o.id AS "orderId", o.order_no AS "orderNo", o.order_time AS "orderTime",
+                                               o.type, o.status, o.payment_status AS "paymentStatus",
+                                               o.payment_method AS "paymentMethod", o.customer_name AS "customerName",
+                                               o.customer_phone AS "customerPhone", t.table_number AS "tableNumber",
+                                               r.name AS "branchName", r.code AS "branchCode", r.phone AS "branchPhone"
+                                        FROM invoices i
+                                        JOIN orders o ON o.id = i.order_id
+                                        JOIN restaurants r ON r.id = i.branch_id
+                                        LEFT JOIN tables t ON t.id = o.table_id
+                                        WHERE i.order_id = ?
+                                        """, orderId);
+                } catch (org.springframework.dao.EmptyResultDataAccessException ex) {
+                        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Invoice not found for this order");
+                }
+                bill.put("items", jdbc.queryForList("""
+                                SELECT oi.product_name_snapshot AS "productName", oi.quantity,
+                                       oi.price AS "unitPrice", oi.price * oi.quantity AS "lineTotal",
+                                       oi.tax_rate_snapshot AS "taxRate", oi.status
+                                FROM order_items oi WHERE oi.order_id = ? ORDER BY oi.id
+                                """, orderId));
+                return bill;
+        }
+
+        @Transactional
         public OrderResponse voidOrder(Long orderId, String reason, User actor) {
                 Order order = orderRepository.findForUpdateById(orderId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found"));
                 if (reason == null || reason.isBlank()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Void reason is required");

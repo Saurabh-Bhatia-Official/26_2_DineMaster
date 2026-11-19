@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'package:dine_master/core/theme/app_colors.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
@@ -39,6 +40,7 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
 
   bool _isLoading = true;
   bool _isTakingOrder = false;
+  bool _backendMode = false;
 
   // Floor Plan States
   List<WaiterTableInfo> _tableInfoList = [];
@@ -56,6 +58,7 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
   String? _selectedWaiterName;
   int? _selectedChefId;
   String? _selectedChefName;
+  int? _editingExistingOrderId;
   String? _pendingCreateOrderKey;
   String? _pendingConfirmOrderKey;
 
@@ -113,6 +116,12 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
   Future<void> _loadDashboardAndProducts() async {
     setState(() => _isLoading = true);
     try {
+      _backendMode = await ApiMode.useBackendApi();
+      if (_backendMode) {
+        await _loadBackendDashboard();
+        return;
+      }
+
       final db = await DatabaseHelper.instance.database;
       final restaurantId = DatabaseHelper.currentRestaurantId ?? 1;
 
@@ -332,6 +341,230 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  Future<void> _loadBackendDashboard() async {
+    final restaurantId = DatabaseHelper.currentRestaurantId;
+    if (restaurantId == null) {
+      throw StateError('Select a branch before opening Waiter Order');
+    }
+
+    final api = const BackendApiClient();
+    final tables = await TableRepository().getTables();
+    final orders = await _orderApiRepository.getOrders(restaurantId);
+    final rawReservations = await api.getJson(
+      '/api/v1/reservations?restaurantId=$restaurantId',
+    );
+    final rawKots = await api.getJson(
+      '/api/v1/kitchen-tickets?restaurantId=$restaurantId',
+    );
+    if (rawReservations is! List || rawKots is! List) {
+      throw const FormatException('Backend returned invalid waiter data');
+    }
+
+    final reservations = rawReservations.whereType<Map>().map((raw) {
+      final booking = Map<String, dynamic>.from(raw);
+      final table = booking['table'];
+      final tableMap = table is Map ? Map<String, dynamic>.from(table) : null;
+      return <String, dynamic>{
+        ...booking,
+        'table_id': booking['tableId'] ?? tableMap?['id'],
+        'booking_time': booking['bookingTime'],
+        'customer_name': booking['customerName'],
+        'customer_phone': booking['customerPhone'],
+        'guest_count': booking['guestCount'],
+        'table_number': tableMap?['tableNumber'],
+      };
+    }).toList();
+
+    final ticketsByOrder = <int, List<Map<String, dynamic>>>{};
+    for (final raw in rawKots.whereType<Map>()) {
+      final ticket = Map<String, dynamic>.from(raw);
+      final orderId = (ticket['orderId'] as num?)?.toInt();
+      if (orderId != null) {
+        ticketsByOrder.putIfAbsent(orderId, () => []).add(ticket);
+      }
+    }
+
+    const terminalOrderStatuses = {
+      'DRAFT',
+      'PAID',
+      'CANCELLED',
+      'VOIDED',
+      'BILLED',
+    };
+    final orderMaps = orders.where((order) {
+      final status = order.status.toUpperCase();
+      return !terminalOrderStatuses.contains(status) &&
+          order.paymentStatus.toUpperCase() != 'PAID';
+    }).map((order) {
+      final map = order.toMap();
+      map['order_taker_name'] = order.orderTakerName ?? 'Waiter';
+      map['table_number'] = _firstOrNull(
+        tables
+            .where((table) => table.id == order.tableId)
+            .map((table) => table.tableNumber),
+      );
+      map['table_name'] = _firstOrNull(
+        tables
+            .where((table) => table.id == order.tableId)
+            .map((table) => table.name),
+      );
+      final ticketStatuses = (ticketsByOrder[order.id] ?? [])
+          .map((ticket) => ticket['status']?.toString().toUpperCase())
+          .whereType<String>()
+          .toList();
+      if (order.status.toUpperCase() == 'BILL_REQUESTED') {
+        map['status'] = 'Billing Pending';
+      } else if (ticketStatuses.contains('READY')) {
+        map['status'] = 'Ready';
+      } else if (ticketStatuses.contains('COOKING')) {
+        map['status'] = 'Preparing';
+      } else if (ticketStatuses.isNotEmpty &&
+          ticketStatuses.every((status) =>
+              status == 'SERVED' || status == 'CANCELLED')) {
+        map['status'] = 'Served';
+      } else {
+        map['status'] = _waiterDisplayOrderStatus(order.status);
+      }
+      return map;
+    }).toList();
+
+    final now = DateTime.now();
+    final sections = <String>{'All'};
+    final enrichedTables = <WaiterTableInfo>[];
+    for (final table in tables) {
+      if (table.section.isNotEmpty) sections.add(table.section);
+      final activeOrder = _firstOrNull(
+        orderMaps.where((order) => order['table_id'] == table.id),
+      );
+      final bookingMaps = reservations.where((booking) {
+        final bookingTableId = (booking['table_id'] as num?)?.toInt();
+        return bookingTableId == table.id &&
+            booking['status']?.toString().toUpperCase() == 'CONFIRMED';
+      });
+      Map<String, dynamic>? activeBooking;
+      for (final booking in bookingMaps) {
+        final bookingTime = DateTime.tryParse(
+          booking['booking_time']?.toString() ?? '',
+        );
+        if (bookingTime != null &&
+            !now.isBefore(bookingTime) &&
+            now.isBefore(bookingTime.add(const Duration(hours: 1)))) {
+          activeBooking = booking;
+          break;
+        }
+      }
+
+      var itemCount = 0;
+      final orderId = (activeOrder?['id'] as num?)?.toInt();
+      if (orderId != null) {
+        for (final ticket in ticketsByOrder[orderId] ?? []) {
+          final items = ticket['items'];
+          if (items is List) {
+            for (final item in items.whereType<Map>()) {
+              itemCount += (item['quantity'] as num?)?.toInt() ?? 0;
+            }
+          }
+        }
+      }
+      enrichedTables.add(WaiterTableInfo(
+        table: table,
+        activeOrder: activeOrder,
+        activeBooking: activeBooking,
+        orderItemsCount: itemCount,
+      ));
+    }
+
+    final products = await _productRepository.getProducts();
+    List<Map<String, dynamic>> allUsers = [];
+    try {
+      final currentUserResponse = await api.getJson('/api/v1/auth/me');
+      if (currentUserResponse is Map) {
+        final currentUser = Map<String, dynamic>.from(currentUserResponse);
+        if (RoleNames.canonical(currentUser['role']?.toString() ?? '') ==
+            'WAITER') {
+          allUsers = [currentUser];
+        } else {
+          final users = await UserRepository().getUsers();
+          allUsers = users.map((user) => user.toMap()).where((user) {
+            final active = user['is_active'] ?? user['active'];
+            return active == true || active == 1;
+          }).toList();
+        }
+      }
+    } catch (error) {
+      debugPrint('Could not load waiter assignment options: $error');
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final username = prefs.getString('username');
+    final waiters = allUsers.where((user) {
+      return RoleNames.canonical(user['role']?.toString() ?? '') == 'WAITER';
+    }).toList();
+
+    if (!mounted) return;
+    setState(() {
+      _tableInfoList = enrichedTables;
+      _sectionsList = sections.toList();
+      _waiterOrdersList = orderMaps;
+      _products = products.where((product) => product.isAvailable).toList();
+      _categories = {
+        'All',
+        ..._products.map((product) => product.category).where((c) => c.isNotEmpty),
+      }.toList();
+      _chefsList = allUsers.where((user) {
+        return RoleNames.canonical(user['role']?.toString() ?? '') == 'CHEF';
+      }).toList();
+      _waitersList = waiters;
+      _showWaiterAssignment = prefs.getBool('show_waiter_assignment') ?? true;
+      _showChefAssignment = prefs.getBool('show_chef_assignment') ?? true;
+      if (username != null && _selectedWaiterId == null) {
+        final matchingWaiter = _firstOrNull(
+          waiters.where(
+            (waiter) => waiter['username']?.toString() == username,
+          ),
+        );
+        _selectedWaiterId = (matchingWaiter?['id'] as num?)?.toInt();
+        _selectedWaiterName = matchingWaiter?['name']?.toString();
+      }
+      if (_selectedTableId != null) {
+        final matchingTable = _firstOrNull(
+          enrichedTables.where(
+            (info) => info.table.id == _selectedTableId,
+          ),
+        );
+        if (matchingTable != null) {
+          _selectedTableDisplayName = matchingTable.displayNameForOrder;
+        }
+      }
+      _isLoading = false;
+    });
+  }
+
+  String _waiterDisplayOrderStatus(String status) {
+    switch (status.toUpperCase()) {
+      case 'CONFIRMED':
+        return 'Sent to Kitchen';
+      case 'BILL_REQUESTED':
+        return 'Billing Pending';
+      case 'SERVED':
+        return 'Served';
+      case 'PAID':
+        return 'Paid';
+      case 'CANCELLED':
+        return 'Cancelled';
+      case 'DRAFT':
+        return 'Received';
+      default:
+        return status;
+    }
+  }
+
+  T? _firstOrNull<T>(Iterable<T> values) {
+    for (final value in values) {
+      return value;
+    }
+    return null;
   }
 
   Future<void> _handleProductTap(ProductModel product) async {
@@ -680,6 +913,37 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
             _selectedWaiterId!,
           );
         }
+        if (_editingExistingOrderId != null) {
+          await _orderApiRepository.addRound(
+            _editingExistingOrderId!,
+            _cartItems
+                .map(
+                  (item) => OrderItemModel(
+                    productId: item.product.id!,
+                    quantity: item.quantity,
+                    price: item.product.price,
+                    notes: item.formattedNotes.isEmpty
+                        ? null
+                        : item.formattedNotes,
+                  ),
+                )
+                .toList(),
+          );
+          await _assignSelectedChef(_editingExistingOrderId!);
+          if (!mounted) return;
+          setState(() {
+            _cartItems.clear();
+            _editingExistingOrderId = null;
+            _selectedTableId = null;
+            _selectedTableDisplayName = 'Select';
+            _isTakingOrder = false;
+            _selectedChefId = null;
+            _selectedChefName = null;
+          });
+          await _loadDashboardAndProducts();
+          _tabController.animateTo(1);
+          return;
+        }
         _pendingCreateOrderKey ??= OrderApiRepository.newIdempotencyKey();
         _pendingConfirmOrderKey ??= OrderApiRepository.newIdempotencyKey();
         final order = await _orderApiRepository.createOrder(
@@ -709,26 +973,13 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
           order.id!,
           idempotencyKey: _pendingConfirmOrderKey!,
         );
-        if (_selectedChefId != null) {
-          final tickets = await const BackendApiClient().getJson(
-            '/api/v1/kitchen-tickets/order/${order.id}',
-          );
-          if (tickets is List) {
-            for (final ticket in tickets.whereType<Map>()) {
-              final kotId = (ticket['id'] as num?)?.toInt();
-              if (kotId == null) continue;
-              await const BackendApiClient().postJson(
-                '/api/v1/kitchen-tickets/$kotId/assign-chef',
-                {'chefId': _selectedChefId},
-              );
-            }
-          }
-        }
+        await _assignSelectedChef(order.id!);
         if (!mounted) return;
         _pendingCreateOrderKey = null;
         _pendingConfirmOrderKey = null;
         setState(() {
           _cartItems.clear();
+          _editingExistingOrderId = null;
           _selectedTableId = null;
           _selectedTableDisplayName = 'Select';
           _customerNameController.clear();
@@ -738,6 +989,7 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
           _selectedChefName = null;
         });
         await _loadDashboardAndProducts();
+        _tabController.animateTo(1);
         return;
       }
 
@@ -908,6 +1160,7 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
       });
 
       _loadDashboardAndProducts();
+      _tabController.animateTo(1);
 
       SyncService.instance.broadcastEvent('database_update', {});
     } catch (e, stackTrace) {
@@ -920,10 +1173,62 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
     }
   }
 
+  Future<void> _assignSelectedChef(int orderId) async {
+    if (_selectedChefId == null) return;
+    final tickets = await const BackendApiClient().getJson(
+      '/api/v1/kitchen-tickets/order/$orderId',
+    );
+    if (tickets is! List) return;
+    for (final ticket in tickets.whereType<Map>()) {
+      final kotId = (ticket['id'] as num?)?.toInt();
+      if (kotId == null) continue;
+      await const BackendApiClient().postJson(
+        '/api/v1/kitchen-tickets/$kotId/assign-chef',
+        {'chefId': _selectedChefId},
+      );
+    }
+  }
+
   // --- ACTIONS: SERVE, BILL, TRANSFER ---
   Future<void> _markOrderAsServed(int orderId, int? tableId) async {
     setState(() => _isLoading = true);
     try {
+      if (await ApiMode.useBackendApi()) {
+        final api = const BackendApiClient();
+        final response = await api.getJson(
+          '/api/v1/kitchen-tickets?restaurantId=${DatabaseHelper.currentRestaurantId}',
+        );
+        if (response is! List) {
+          throw const FormatException('Expected kitchen tickets for the order');
+        }
+        var updatedItems = 0;
+        for (final rawTicket in response.whereType<Map>()) {
+          final ticket = Map<String, dynamic>.from(rawTicket);
+          if ((ticket['orderId'] as num?)?.toInt() != orderId) continue;
+          final kotId = (ticket['kotId'] as num?)?.toInt() ??
+              (ticket['id'] as num?)?.toInt();
+          final rawItems = ticket['items'];
+          if (kotId == null || rawItems is! List) continue;
+          for (final rawItem in rawItems.whereType<Map>()) {
+            final item = Map<String, dynamic>.from(rawItem);
+            if (item['status']?.toString().toUpperCase() != 'READY') continue;
+            final itemId = (item['itemId'] as num?)?.toInt() ??
+                (item['orderItemId'] as num?)?.toInt();
+            if (itemId == null) continue;
+            await api.putJson(
+              '/api/v1/kitchen-tickets/$kotId/items/$itemId/status',
+              {'status': 'SERVED'},
+            );
+            updatedItems++;
+          }
+        }
+        if (updatedItems == 0) {
+          throw StateError('No ready kitchen items were found to mark served');
+        }
+        await _loadDashboardAndProducts();
+        return;
+      }
+
       final db = await DatabaseHelper.instance.database;
 
       await db.update(
@@ -996,8 +1301,31 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
   }
 
   Future<void> _requestBilling(int orderId, int? tableId) async {
+    final order = _firstOrNull(
+      _waiterOrdersList.where((item) => item['id'] == orderId),
+    );
+    final status = order?['status']?.toString();
+    if (status != 'Served' && status != 'Billing Pending') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Serve the order first. Bill request is available after it is marked Served.'),
+        ),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
     try {
+      if (await ApiMode.useBackendApi()) {
+        await const BackendApiClient().postJson(
+          '/api/v1/orders/$orderId/request-bill',
+          const <String, dynamic>{},
+        );
+        await _loadDashboardAndProducts();
+        if (mounted) context.go('/dashboard/pos?orderId=$orderId');
+        return;
+      }
+
       final db = await DatabaseHelper.instance.database;
 
       await db.update(
@@ -1122,6 +1450,7 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
     int sourceTableId,
     int targetTableId,
   ) async {
+    if (_backendMode) return;
     setState(() => _isLoading = true);
     try {
       final db = await DatabaseHelper.instance.database;
@@ -1221,7 +1550,7 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
                     icon: Icon(Icons.grid_view),
                     text: 'Floor Plan (Live Tables)',
                   ),
-                  Tab(icon: Icon(Icons.receipt_long), text: 'Kitchen Orders'),
+                  Tab(icon: Icon(Icons.receipt_long), text: 'Order Tracking'),
                 ],
               ),
         actions: [
@@ -1239,6 +1568,7 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
                 _isTakingOrder = !_isTakingOrder;
                 if (!_isTakingOrder) {
                   _cartItems.clear();
+                  _editingExistingOrderId = null;
                 }
               });
             },
@@ -1246,7 +1576,7 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
               _isTakingOrder ? Icons.arrow_back : Icons.add_shopping_cart,
             ),
             label: Text(
-              _isTakingOrder ? 'Back to Dashboard' : 'Take Customer Order',
+              _isTakingOrder ? 'Back to Orders' : 'Start New Order',
             ),
             style: ElevatedButton.styleFrom(
               backgroundColor: _isTakingOrder
@@ -1260,9 +1590,19 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
       ),
       body: _isTakingOrder
           ? _buildOrderTakingPanel()
-          : TabBarView(
-              controller: _tabController,
-              children: [_buildFloorPlanTab(), _buildKitchenOrdersTab()],
+          : Column(
+              children: [
+                _buildWaiterFlowGuide(),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildFloorPlanTab(),
+                      _buildKitchenOrdersTab(),
+                    ],
+                  ),
+                ),
+              ],
             ),
     );
   }
@@ -1292,12 +1632,14 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
       _selectedTableDisplayName = tableInfo.displayNameForOrder;
       _orderType = 'Dine-In';
       _isTakingOrder = true;
+      _editingExistingOrderId = null;
       _cartItems.clear();
       _currentOrderGuestCount = tableInfo.combinedCapacity;
     });
   }
 
   Future<void> _showMergeTableDialog(TableModel primaryTable) async {
+    if (_backendMode) return;
     final availableTables = _tableInfoList
         .where(
           (t) =>
@@ -1351,6 +1693,7 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
   }
 
   Future<void> _unmergeTable(TableModel table) async {
+    if (_backendMode) return;
     final db = await DatabaseHelper.instance.database;
 
     // Unmerge the whole group: if this is the anchor, clear all its members.
@@ -1389,7 +1732,7 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (isMergedGroup)
+                if (isMergedGroup && !_backendMode)
                   ListTile(
                     dense: true,
                     leading: const Icon(Icons.merge_type, color: Colors.blue),
@@ -1409,7 +1752,7 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
                     _promptGuestCountAndTakeOrder(table);
                   },
                 ),
-                if (isMergedGroup)
+                if (isMergedGroup && !_backendMode)
                   ListTile(
                     leading: const Icon(Icons.call_split, color: Colors.red),
                     title: Text(
@@ -1420,7 +1763,7 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
                       _unmergeTable(table);
                     },
                   )
-                else if (table.mergedWithId == null)
+                else if (!_backendMode && table.mergedWithId == null)
                   ListTile(
                     leading: const Icon(Icons.merge_type, color: Colors.blue),
                     title: const Text('Merge with another table'),
@@ -1429,7 +1772,9 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
                       _showMergeTableDialog(table);
                     },
                   ),
-                if (table.mergedWithId != null && !isMergedGroup)
+                if (!_backendMode &&
+                    table.mergedWithId != null &&
+                    !isMergedGroup)
                   ListTile(
                     leading: const Icon(Icons.call_split, color: Colors.red),
                     title: const Text('Unmerge Table'),
@@ -1483,14 +1828,14 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
                       ),
                       decoration: BoxDecoration(
                         color: _getStatusColor(
-                          table.status,
+                          tableInfo.effectiveStatus,
                         ).withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        'Status: ${table.status}',
+                        'Status: ${tableInfo.effectiveStatus}',
                         style: TextStyle(
-                          color: _getStatusColor(table.status),
+                          color: _getStatusColor(tableInfo.effectiveStatus),
                           fontWeight: FontWeight.bold,
                           fontSize: 12,
                         ),
@@ -1528,6 +1873,7 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
                         Navigator.pop(context);
                         setState(() {
                           _selectedTableId = table.id;
+                          _editingExistingOrderId = orderId;
                           _selectedTableDisplayName =
                               tableInfo.displayNameForOrder;
                           _orderType = 'Dine-In';
@@ -1536,7 +1882,8 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
                         });
                       },
                     ),
-                    ElevatedButton.icon(
+                    if (!_backendMode)
+                      ElevatedButton.icon(
                       icon: const Icon(Icons.move_down, size: 16),
                       label: const Text('Transfer'),
                       style: ElevatedButton.styleFrom(
@@ -1551,8 +1898,8 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
                           table.displayName,
                         );
                       },
-                    ),
-                    if (orderStatus != 'Billing Pending')
+                      ),
+                    if (orderStatus == 'Served')
                       ElevatedButton.icon(
                         icon: const Icon(Icons.request_page_outlined, size: 16),
                         label: const Text('Bill Request'),
@@ -1564,6 +1911,60 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
                           Navigator.pop(context);
                           _requestBilling(orderId, table.id);
                         },
+                      ),
+                    if (orderStatus == 'Ready')
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.room_service_outlined, size: 16),
+                        label: const Text('Mark Served'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF00897B),
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _markOrderAsServed(orderId, table.id);
+                        },
+                      ),
+                    if (orderStatus != 'Ready' &&
+                        orderStatus != 'Served' &&
+                        orderStatus != 'Billing Pending')
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.kitchen_outlined, size: 16),
+                        label: const Text('Open Kitchen Orders'),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _tabController.animateTo(1);
+                        },
+                      ),
+                    if (orderStatus == 'Billing Pending')
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.payment, size: 16),
+                        label: const Text('Open Payment'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green.shade700,
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          context.go('/dashboard/pos?orderId=$orderId');
+                        },
+                      ),
+                    if (orderStatus != 'Served' &&
+                        orderStatus != 'Billing Pending')
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: Text(
+                          'Next: wait until the kitchen marks this order Ready, serve it, then request the bill.',
+                          style: TextStyle(fontSize: 12, color: Colors.black54),
+                        ),
+                      ),
+                    if (orderStatus == 'Billing Pending')
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: Text(
+                          'Bill requested. Continue with payment at the cashier.',
+                          style: TextStyle(fontSize: 12, color: Colors.black54),
+                        ),
                       ),
                   ],
                 ),
@@ -1621,11 +2022,10 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
           ),
           const SizedBox(height: 20),
           const Text(
-            'Live Kitchen Orders Tracking',
+            'Track My Orders',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 12),
-
           Expanded(
             child: _waiterOrdersList.isEmpty
                 ? const Center(
@@ -1745,6 +2145,18 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
                                         color: AppColors.primary,
                                       ),
                                     ),
+                                    if (status == 'Sent to Kitchen' ||
+                                        status == 'Preparing')
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 5),
+                                        child: Text(
+                                          'Waiting for kitchen staff to mark the KOT Ready. Then you can serve it.',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.orange.shade900,
+                                          ),
+                                        ),
+                                      ),
                                   ],
                                 ),
                               ),
@@ -1783,7 +2195,20 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
                                         foregroundColor: Colors.white,
                                       ),
                                     ),
-                                  if (type == 'Dine-In' &&
+                                  if (status == 'Billing Pending')
+                                    ElevatedButton.icon(
+                                      onPressed: () => context.go(
+                                        '/dashboard/pos?orderId=$orderId',
+                                      ),
+                                      icon: const Icon(Icons.payment, size: 14),
+                                      label: const Text('Open POS & Pay'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.green.shade700,
+                                        foregroundColor: Colors.white,
+                                      ),
+                                    ),
+                                  if (!_backendMode &&
+                                      type == 'Dine-In' &&
                                       status != 'Billing Pending' &&
                                       status != 'Served')
                                     IconButton(
@@ -1838,6 +2263,165 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
     );
   }
 
+  Widget _buildWaiterFlowGuide() {
+    final orders = _waiterOrdersList;
+    final hasReady = orders.any((order) => order['status'] == 'Ready');
+    final hasServed = orders.any((order) => order['status'] == 'Served');
+    final hasBillRequested = orders.any(
+      (order) => order['status'] == 'Billing Pending',
+    );
+    final hasKitchenOrder = orders.any(
+      (order) =>
+          order['status'] == 'Preparing' ||
+          order['status'] == 'Sent to Kitchen' ||
+          order['status'] == 'Received',
+    );
+    final currentStep = hasBillRequested
+        ? 4
+        : hasReady || hasServed
+        ? 3
+        : hasKitchenOrder
+        ? 2
+        : 1;
+    final billOrder = _firstOrNull(
+      orders.where((order) => order['status'] == 'Billing Pending'),
+    );
+    final readyOrder = _firstOrNull(
+      orders.where((order) => order['status'] == 'Ready'),
+    );
+    final servedOrder = _firstOrNull(
+      orders.where((order) => order['status'] == 'Served'),
+    );
+    const steps = [
+      ('1', 'Take order'),
+      ('2', 'Kitchen prepares'),
+      ('3', 'Serve & request bill'),
+      ('4', 'POS payment'),
+    ];
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'WAITER ORDER FLOW',
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (var i = 0; i < steps.length; i++) ...[
+                  if (i > 0)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: Icon(Icons.chevron_right, size: 16, color: Colors.grey.shade500),
+                    ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: i + 1 == currentStep
+                          ? AppColors.primary.withValues(alpha: 0.12)
+                          : Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(20),
+                      border: i + 1 == currentStep
+                          ? Border.all(color: AppColors.primary)
+                          : null,
+                    ),
+                    child: Text(
+                      '${steps[i].$1}  ${steps[i].$2}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: i + 1 == currentStep
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                        color: i + 1 == currentStep
+                            ? AppColors.primary
+                            : Colors.black87,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            hasBillRequested
+                ? 'Next: open the POS payment screen for a bill-requested order.'
+            : hasReady
+                ? 'Next: mark a Ready order as Served, then request its bill.'
+                : hasServed
+                ? 'Next: request the bill for a served order. The POS payment screen opens next.'
+                : hasKitchenOrder
+                ? 'Order #${_firstOrNull(orders.where((order) => order['status'] == 'Sent to Kitchen' || order['status'] == 'Preparing'))?['id'] ?? ''} is waiting for kitchen staff. They must mark its KOT items Ready before you can serve it.'
+                : 'Start: select an available table, add items, and send the order to the kitchen.',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: ElevatedButton.icon(
+              onPressed: billOrder != null
+                  ? () {
+                      final id = (billOrder['id'] as num).toInt();
+                      context.go('/dashboard/pos?orderId=$id');
+                    }
+                  : readyOrder != null
+                  ? () => _markOrderAsServed(
+                      (readyOrder['id'] as num).toInt(),
+                      (readyOrder['table_id'] as num?)?.toInt(),
+                    )
+                  : servedOrder != null
+                  ? () => _requestBilling(
+                      (servedOrder['id'] as num).toInt(),
+                      (servedOrder['table_id'] as num?)?.toInt(),
+                    )
+                  : hasKitchenOrder
+                  ? () => context.go('/dashboard/kitchen')
+                  : () => _tabController.animateTo(0),
+              icon: Icon(
+                billOrder != null
+                    ? Icons.payment
+                    : readyOrder != null
+                    ? Icons.room_service_outlined
+                    : servedOrder != null
+                    ? Icons.receipt_long
+                    : hasKitchenOrder
+                    ? Icons.refresh
+                    : Icons.table_restaurant,
+              ),
+              label: Text(
+                billOrder != null
+                    ? 'Open POS & Complete Payment'
+                    : readyOrder != null
+                    ? 'Mark Ready Order Served'
+                    : servedOrder != null
+                    ? 'Request Bill & Continue to POS'
+                    : hasKitchenOrder
+                    ? 'Open Kitchen KOT (kitchen staff)'
+                    : 'Choose a Table to Start',
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // --- ORDER TAKING PANEL ---
   Widget _buildOrderTakingPanel() {
     final filteredProducts = _products.where((p) {
@@ -1849,8 +2433,26 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
       return matchesCat && matchesSearch;
     }).toList();
 
-    return Row(
+    return Column(
       children: [
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.blue.shade50,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            _editingExistingOrderId == null
+                ? 'STEP 2 · ADD ITEMS\nAdd items for $_selectedTableDisplayName, review the cart, then press Send Order to Kitchen.'
+                : 'Adding items to order #$_editingExistingOrderId: Add this round and send it to the kitchen.',
+            style: const TextStyle(fontSize: 13, height: 1.35),
+          ),
+        ),
+        Expanded(
+          child: Row(
+            children: [
         // Left Side: Catalog
         Expanded(
           flex: 5,
@@ -1942,50 +2544,9 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
             onEditCartItem: _editCartItem,
             onClearCart: () => setState(() => _cartItems.clear()),
             onSendKOT: _submitWaiterOrder,
-            onPrintBill: () {
-              if (_selectedTableId == null) return;
-              final billMatch = _tableInfoList.where(
-                (t) => t.table.id == _selectedTableId,
-              );
-              final billOrder = billMatch.isNotEmpty
-                  ? billMatch.first.activeOrder
-                  : null;
-              final billOrderId = billOrder == null
-                  ? null
-                  : (billOrder['id'] as num?)?.toInt();
-              if (billOrderId != null) {
-                _requestBilling(billOrderId, _selectedTableId);
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('No active order to bill for this table.'),
-                  ),
-                );
-              }
-            },
-            onCheckout: () {
-              if (_selectedTableId == null) return;
-              final checkMatch = _tableInfoList.where(
-                (t) => t.table.id == _selectedTableId,
-              );
-              final checkOrder = checkMatch.isNotEmpty
-                  ? checkMatch.first.activeOrder
-                  : null;
-              final checkOrderId = checkOrder == null
-                  ? null
-                  : (checkOrder['id'] as num?)?.toInt();
-              if (checkOrderId != null) {
-                _requestBilling(checkOrderId, _selectedTableId);
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'No active order to checkout for this table.',
-                    ),
-                  ),
-                );
-              }
-            },
+          ),
+        ),
+            ],
           ),
         ),
       ],

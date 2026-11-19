@@ -75,6 +75,28 @@ class OrderApiRepository {
     return _parseOrders(response);
   }
 
+  Future<Map<String, dynamic>> addRound(
+    int orderId,
+    List<OrderItemModel> items,
+  ) async {
+    final response = await _apiClient.postJson(
+      '/api/v1/orders/$orderId/rounds',
+      {
+        'items': items
+            .map((item) => {
+                  'productId': item.productId,
+                  'quantity': item.quantity,
+                  if (item.notes != null) 'notes': item.notes,
+                })
+            .toList(),
+      },
+    );
+    if (response is! Map) {
+      throw const FormatException('Expected the updated order round');
+    }
+    return Map<String, dynamic>.from(response);
+  }
+
   Future<OrderModel> getOrder(int id) async {
     final response = await _apiClient.getJson('/api/v1/orders/$id');
     return OrderModel.fromMap(Map<String, dynamic>.from(response as Map));
@@ -125,6 +147,14 @@ class OrderApiRepository {
       {'paymentMethod': paymentMethod},
     );
     return OrderModel.fromMap(Map<String, dynamic>.from(response as Map));
+  }
+
+  Future<Map<String, dynamic>> getBill(int orderId) async {
+    final response = await _apiClient.getJson('/api/v1/orders/$orderId/bill');
+    if (response is! Map) {
+      throw const FormatException('Expected invoice details from the backend');
+    }
+    return Map<String, dynamic>.from(response);
   }
 
   List<OrderModel> _parseOrders(dynamic response) {

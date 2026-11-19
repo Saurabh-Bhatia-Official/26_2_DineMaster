@@ -98,11 +98,11 @@ public class BranchScopeService {
             case "branches" -> branches.findById(id).map(branch -> branch.getId()).orElse(null);
             case "products" -> products.findById(id).map(product -> product.getRestaurantId()).orElse(null);
             case "tables" -> tables.findById(id).map(table -> table.getRestaurant() == null ? null : table.getRestaurant().getId()).orElse(null);
-            case "orders" -> orders.findById(id).map(order -> order.getRestaurant() == null ? null : order.getRestaurant().getId()).orElse(null);
+            case "orders" -> orders.findRestaurantIdById(id).orElse(null);
             case "reservations" -> bookings.findById(id).map(booking -> booking.getRestaurant() == null ? null : booking.getRestaurant().getId()).orElse(null);
             case "inventory" -> inventory.findById(id).map(item -> item.getRestaurant() == null ? null : item.getRestaurant().getId()).orElse(null);
             case "kitchen-tickets" -> kitchenTickets.findById(id)
-                    .map(kot -> kot.getOrder().getRestaurant() == null ? null : kot.getOrder().getRestaurant().getId()).orElse(null);
+                    .map(kot -> kot.getBranchId()).orElse(null);
             case "recipes" -> recipes.findById(id)
                     .map(recipe -> recipe.getProduct().getRestaurantId()).orElse(null);
             default -> null;

@@ -889,15 +889,15 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
                             final api = const BackendApiClient();
                             if (isEditing && existingProduct.id != null) {
                               await api.putJson(
-                                '/api/products/${existingProduct.id}',
+                                '/api/v1/products/${existingProduct.id}',
                                 apiData,
                               );
                             } else {
                               if (selectedImage == null) {
-                                await api.postJson('/api/products', apiData);
+                                await api.postJson('/api/v1/products', apiData);
                               } else {
                                 await api.postMultipartJson(
-                                  '/api/products',
+                                  '/api/v1/products',
                                   apiData,
                                   fileField: 'image',
                                   fileBytes: selectedImage!.bytes!,
@@ -1418,7 +1418,7 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
             onPressed: () async {
               try {
                 if (kIsWeb) {
-                  await const BackendApiClient().delete('/api/products/$id');
+                  await const BackendApiClient().delete('/api/v1/products/$id');
                 } else {
                   final db = await DatabaseHelper.instance.database;
                   await db.delete(
@@ -1458,7 +1458,7 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
     try {
       if (kIsWeb) {
         await const BackendApiClient().patchJson(
-          '/api/products/${product.id}/availability',
+          '/api/v1/products/${product.id}/availability',
           {
             'is_available': newStatus,
           },

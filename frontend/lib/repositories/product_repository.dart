@@ -2,7 +2,6 @@ import '../core/api/api_mode.dart';
 import '../core/database/database_helper.dart';
 import '../models/product_model.dart';
 import '../services/backend_api_client.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class ProductRepository {
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
@@ -12,7 +11,7 @@ class ProductRepository {
     if (await _useBackendApi()) {
       final restaurantId = DatabaseHelper.currentRestaurantId;
       final response = await _apiClient.getJson(
-        '/api/products?restaurantId=$restaurantId',
+        '/api/v1/products?restaurantId=$restaurantId',
       );
       return _parseProducts(response);
     }
@@ -30,7 +29,7 @@ class ProductRepository {
   Future<List<ProductModel>> getProductsByCategory(String category) async {
     if (await _useBackendApi()) {
       final response = await _apiClient.getJson(
-        '/api/products/category/${Uri.encodeComponent(category)}'
+        '/api/v1/products/category/${Uri.encodeComponent(category)}'
         '?restaurantId=${DatabaseHelper.currentRestaurantId}',
       );
       return _parseProducts(response);
@@ -48,7 +47,7 @@ class ProductRepository {
 
   Future<int> addProduct(ProductModel product) async {
     if (await _useBackendApi()) {
-      final response = await _apiClient.postJson('/api/products', _toApiMap(product));
+      final response = await _apiClient.postJson('/api/v1/products', _toApiMap(product));
       return (response['id'] as num).toInt();
     }
 
@@ -62,7 +61,7 @@ class ProductRepository {
     if (await _useBackendApi()) {
       final id = product.id;
       if (id == null) throw ArgumentError('Product ID is required for update');
-      await _apiClient.putJson('/api/products/$id', _toApiMap(product));
+      await _apiClient.putJson('/api/v1/products/$id', _toApiMap(product));
       return 1;
     }
 
@@ -77,7 +76,7 @@ class ProductRepository {
 
   Future<int> deleteProduct(int id) async {
     if (await _useBackendApi()) {
-      await _apiClient.delete('/api/products/$id');
+      await _apiClient.delete('/api/v1/products/$id');
       return 1;
     }
 
@@ -86,8 +85,7 @@ class ProductRepository {
   }
 
   Future<bool> _useBackendApi() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool('use_backend_api') ?? ApiMode.defaultUseBackendApi;
+    return ApiMode.useBackendApi();
   }
 
   List<ProductModel> _parseProducts(dynamic response) {

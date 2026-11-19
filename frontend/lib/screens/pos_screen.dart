@@ -7,12 +7,14 @@ import 'dart:async' as async;
 
 import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:video_player/video_player.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../repositories/product_repository.dart';
 import '../models/product_model.dart';
 import '../core/database/database_helper.dart';
+import '../core/api/api_mode.dart';
 import '../repositories/table_repository.dart';
 import '../repositories/order_api_repository.dart';
 import '../models/order_model.dart';
@@ -74,6 +76,7 @@ class _PosScreenState extends State<PosScreen>
   double _discountAmount = 0.0;
   String _discountType = 'Flat'; // Flat or Percentage
   int? _editingOrderId;
+  double? _backendOrderTotal;
   async.StreamSubscription<String>? _syncSubscription;
   late TabController _posTabController;
   List<Map<String, dynamic>> _activeOrders = [];
@@ -135,6 +138,52 @@ class _PosScreenState extends State<PosScreen>
 
   Future<void> _reopenOrder(int orderId) async {
     try {
+      if (await _useBackendApi()) {
+        final order = await _orderApiRepository.getOrder(orderId);
+        final items = await _orderApiRepository.getOrderItems(orderId);
+        if (!mounted) return;
+        setState(() {
+          _cartItems
+            ..clear()
+            ..addAll(items.map((item) {
+              final product = _products.cast<ProductModel?>().firstWhere(
+                    (candidate) => candidate?.id == item.productId,
+                    orElse: () => null,
+                  ) ??
+                  ProductModel(
+                    id: item.productId,
+                    name: item.productName ?? 'Item ${item.productId}',
+                    price: item.price,
+                    category: '',
+                    isVeg: 1,
+                    isAvailable: true,
+                  );
+              return <String, dynamic>{
+                'product': product,
+                'quantity': item.quantity,
+                if (item.notes != null) 'notes': item.notes,
+              };
+            }));
+          _editingOrderId = orderId;
+          _backendOrderTotal = order.totalAmount;
+          _selectedTableId = order.tableId;
+          final normalizedType = order.type.trim().toLowerCase();
+          _selectedOrderType = normalizedType == 'dine in' ||
+                  normalizedType == 'dine-in'
+              ? 'Table Order'
+              : normalizedType == 'takeaway'
+              ? 'Walk-in Customer'
+              : normalizedType == 'delivery'
+              ? 'Online Order'
+              : order.type;
+          _discountAmount = order.discountAmount;
+          _customerNameController.text = order.customerName ?? 'Guest';
+          _customerPhoneController.text = order.customerPhone ?? '';
+        });
+        _posTabController.animateTo(0);
+        return;
+      }
+
       final db = await DatabaseHelper.instance.database;
       final orderDetails = await db.query(
         'orders',
@@ -514,18 +563,47 @@ class _PosScreenState extends State<PosScreen>
   }
 
   double _getTotal() {
+    if (_backendOrderTotal != null && _editingOrderId != null) {
+      return _backendOrderTotal!;
+    }
     return _getSubtotal() - _getDiscount() + _getTax();
   }
 
   Future<void> _processBilling() async {
-    if (_cartItems.isEmpty) {
-      return;
-    }
-
     if (await _useBackendApi()) {
+      if (_editingOrderId != null) {
+        if (_selectedPaymentType == 'Split') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Split payment is not available for backend orders yet.'),
+            ),
+          );
+          return;
+        }
+        try {
+          await _orderApiRepository.recordPayment(
+            _editingOrderId!,
+            _selectedPaymentType.trim().toUpperCase().replaceAll(' ', '_'),
+          );
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Payment completed successfully.')),
+          );
+          context.go('/dashboard/waiter_order');
+        } catch (error) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Payment failed: $error')),
+          );
+        }
+        return;
+      }
+      if (_cartItems.isEmpty) return;
       await _processOnlineOrder();
       return;
     }
+
+    if (_cartItems.isEmpty) return;
 
     try {
       final db = await DatabaseHelper.instance.database;
@@ -963,8 +1041,7 @@ class _PosScreenState extends State<PosScreen>
   }
 
   Future<bool> _useBackendApi() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool('use_backend_api') ?? false;
+    return ApiMode.useBackendApi();
   }
 
   Future<void> _confirmDeleteHoldOrder(
@@ -2551,7 +2628,7 @@ class _PosScreenState extends State<PosScreen>
                   const SizedBox(width: 8),
                   Text(
                     _editingOrderId != null
-                        ? 'Edit Order #${_editingOrderId}'
+                        ? 'Settle Bill #${_editingOrderId}'
                         : 'New Check-out',
                     style: const TextStyle(
                       fontSize: 16,
@@ -2586,12 +2663,9 @@ class _PosScreenState extends State<PosScreen>
                     constraints: const BoxConstraints(),
                     padding: const EdgeInsets.all(4),
                   ),
-                  IconButton(
-                    icon: const Icon(
-                      Icons.delete_sweep_outlined,
-                      color: Colors.red,
-                      size: 20,
-                    ),
+                  if (_backendOrderTotal == null)
+                    IconButton(
+                    icon: const Icon(Icons.delete_sweep_outlined, color: Colors.red, size: 20),
                     // tooltip disabled,
                     onPressed: () {
                       setState(() {
@@ -2610,7 +2684,33 @@ class _PosScreenState extends State<PosScreen>
           ),
         ),
         const Divider(height: 1),
-
+        if (_editingOrderId != null && _backendOrderTotal != null)
+          Container(
+            margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.green.shade100),
+            ),
+            child: Text(
+              'STEP 4 · COLLECT PAYMENT\nOrder #$_editingOrderId bill is requested. Confirm the amount below, choose Cash, UPI, or Card, then press Complete Payment.',
+              style: const TextStyle(fontSize: 12, height: 1.4),
+            ),
+          )
+        else if (_editingOrderId == null)
+          Container(
+            margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Text(
+              'POS DIRECT SALE · Add products, choose a payment method, and press Pay & Settle. For a waiter order, open it from Active Orders after a bill is requested.',
+              style: TextStyle(fontSize: 12, height: 1.4),
+            ),
+          ),
         // Customer Details Row
         Padding(
           padding: const EdgeInsets.all(12.0),
@@ -2965,7 +3065,9 @@ class _PosScreenState extends State<PosScreen>
 
               DropdownButtonFormField<String>(
                 value: _selectedPaymentType,
-                items: ['Cash', 'UPI', 'Card', 'Net Banking', 'Wallet', 'Split']
+                items: (_backendOrderTotal != null
+                        ? ['Cash', 'UPI', 'Card']
+                        : ['Cash', 'UPI', 'Card', 'Net Banking', 'Wallet', 'Split'])
                     .map(
                       (type) => DropdownMenuItem(
                         value: type,
@@ -3038,7 +3140,8 @@ class _PosScreenState extends State<PosScreen>
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Expanded(
+                  if (_backendOrderTotal == null) ...[
+                    Expanded(
                     child: ElevatedButton.icon(
                       icon: const Icon(Icons.save_outlined, size: 16),
                       label: const Text(
@@ -3065,12 +3168,15 @@ class _PosScreenState extends State<PosScreen>
                     ),
                   ),
                   const SizedBox(width: 8),
+                  ],
                   Expanded(
                     child: ElevatedButton.icon(
                       icon: const Icon(Icons.check_circle_outline, size: 16),
-                      label: const Text(
-                        'PAY & SETTLE',
-                        style: TextStyle(
+                      label: Text(
+                        _editingOrderId == null
+                            ? 'PAY & SETTLE'
+                            : 'COMPLETE PAYMENT',
+                        style: const TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
                         ),
@@ -3715,7 +3821,9 @@ class _PosScreenState extends State<PosScreen>
   Widget _buildProductCard(ProductModel product) {
     return PosItemCard(
       product: product,
-      onTap: () => _handleProductTap(product),
+      onTap: _backendOrderTotal == null
+          ? () => _handleProductTap(product)
+          : null,
       onInfoTap: () => _showProductDetails(product),
     );
   }

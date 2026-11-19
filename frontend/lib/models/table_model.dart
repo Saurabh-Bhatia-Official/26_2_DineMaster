@@ -106,21 +106,51 @@ class TableModel {
   }
 
   factory TableModel.fromMap(Map<String, dynamic> map) {
+    final tableNumber = map['table_number'] ?? map['tableNumber'];
+    final active = map['is_active'] ?? map['isActive'] ?? map['active'];
+    final reservable =
+        map['is_reservable'] ?? map['isReservable'] ?? map['reservable'];
+    final rawStatus = (map['status'] ?? 'Available').toString();
+    final waiter = map['waiter'];
+    final waiterMap = waiter is Map ? Map<String, dynamic>.from(waiter) : null;
+    final restaurant = map['restaurant'];
+    final restaurantMap = restaurant is Map
+        ? Map<String, dynamic>.from(restaurant)
+        : null;
+    final status = switch (rawStatus.toUpperCase()) {
+      'AVAILABLE' => 'Available',
+      'OCCUPIED' => 'Occupied',
+      'RESERVED' => 'Reserved',
+      'ORDERING' => 'Ordering',
+      'PREPARING' => 'Preparing',
+      'BILL_REQUESTED' || 'BILLING PENDING' => 'Billing Pending',
+      'PAYMENT_PENDING' => 'Payment Pending',
+      'PAID' => 'Paid',
+      'CLEANING' => 'Cleaning',
+      'OUT_OF_SERVICE' => 'Out of Service',
+      _ => rawStatus,
+    };
     return TableModel(
-      id: map['id'],
-      tableNumber: map['table_number'] ?? '',
+      id: (map['id'] as num?)?.toInt(),
+      tableNumber: tableNumber?.toString() ?? '',
       name: map['name'],
-      capacity: map['capacity'] ?? 4,
-      status: map['status'] ?? 'Available',
+      capacity: (map['capacity'] as num?)?.toInt() ?? 4,
+      status: status,
       section: map['section'] ?? 'Main Hall',
-      tableType: map['table_type'] ?? 'Standard Table',
-      isActive: map['is_active'] == null || map['is_active'] == 1 || map['is_active'] == true,
-      isReservable: map['is_reservable'] == null || map['is_reservable'] == 1 || map['is_reservable'] == true,
+      tableType: map['table_type'] ?? map['tableType'] ?? 'Standard Table',
+      isActive: active == null || active == 1 || active == true,
+      isReservable: reservable == null || reservable == 1 || reservable == true,
       notes: map['notes'],
-      waiterId: map['waiter_id'],
-      waiterName: map['waiter_name'],
-      restaurantId: map['restaurant_id'],
-      mergedWithId: map['merged_with_id'],
+      waiterId: ((map['waiter_id'] ?? map['waiterId'] ?? waiterMap?['id']) as num?)
+          ?.toInt(),
+      waiterName:
+          map['waiter_name'] ?? map['waiterName'] ?? waiterMap?['name'],
+      restaurantId:
+          ((map['restaurant_id'] ?? map['restaurantId'] ?? restaurantMap?['id'])
+                  as num?)
+              ?.toInt(),
+      mergedWithId:
+          ((map['merged_with_id'] ?? map['mergedWithId']) as num?)?.toInt(),
     );
   }
 

@@ -15,6 +15,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
@@ -95,6 +96,13 @@ public class ApiExceptionHandler {
             MissingServletRequestParameterException exception, HttpServletRequest request) {
         return ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "BAD_REQUEST",
                 "Required query parameter is missing: " + exception.getParameterName(), null, request);
+    }
+
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<Map<String, Object>> handleMissingHeader(
+            MissingRequestHeaderException exception, HttpServletRequest request) {
+        return ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "BAD_REQUEST",
+                "Required request header is missing: " + exception.getHeaderName(), null, request);
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)

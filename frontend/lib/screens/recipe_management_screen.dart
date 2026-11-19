@@ -72,7 +72,7 @@ class _RecipeManagementScreenState extends State<RecipeManagementScreen> {
           };
         }).toList();
 
-        final productResponse = await api.getJson('/api/products/$productId');
+        final productResponse = await api.getJson('/api/v1/products/$productId');
 
         if (productResponse is Map) {
           final productData = Map<String, dynamic>.from(productResponse);

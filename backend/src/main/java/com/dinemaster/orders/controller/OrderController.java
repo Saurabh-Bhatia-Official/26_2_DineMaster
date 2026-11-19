@@ -241,6 +241,22 @@ public class OrderController {
         return ResponseEntity.ok(orderService.voidOrder(id, request.reason(), branchScope.requireUser(authentication)));
     }
 
+    @PostMapping("/{id}/bill")
+    @PreAuthorize("hasAuthority('bill:generate')")
+    public ResponseEntity<java.util.Map<String, Object>> generateBill(
+            @PathVariable Long id, Authentication authentication) {
+        branchScope.requireBranch(authentication, orderService.getOrderRestaurantId(id));
+        return ResponseEntity.ok(orderService.generateBill(id, branchScope.requireUser(authentication)));
+    }
+
+    @GetMapping("/{id}/bill")
+    @PreAuthorize("hasAuthority('bill:reprint')")
+    public ResponseEntity<java.util.Map<String, Object>> getBill(
+            @PathVariable Long id, Authentication authentication) {
+        branchScope.requireBranch(authentication, orderService.getOrderRestaurantId(id));
+        return ResponseEntity.ok(orderService.getBill(id));
+    }
+
     @PostMapping("/{id}/payment")
     @PreAuthorize("hasAuthority('payment:record')")
     public ResponseEntity<OrderResponse> recordPayment(

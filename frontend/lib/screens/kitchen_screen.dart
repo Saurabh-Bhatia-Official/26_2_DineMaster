@@ -189,42 +189,48 @@ class _KitchenScreenState extends State<KitchenScreen> {
     for (final raw in rawKots.whereType<Map>()) {
       final kot = Map<String, dynamic>.from(raw);
       final orderId = (kot['orderId'] as num?)?.toInt();
-      if (orderId == null) continue;
-      final orderRaw = await api.getJson('/api/v1/orders/$orderId');
-      final order = Map<String, dynamic>.from(orderRaw as Map);
-      final itemRaw = await api.getJson('/api/v1/orders/$orderId/items');
-      final items = itemRaw is List
-          ? itemRaw.whereType<Map>().map((item) {
+      final kotId = (kot['kotId'] as num?)?.toInt() ??
+          (kot['id'] as num?)?.toInt();
+      if (orderId == null || kotId == null) continue;
+      final items = kot['items'] is List
+          ? (kot['items'] as List).whereType<Map>().map((item) {
               final value = Map<String, dynamic>.from(item);
               return {
-                'quantity': value['quantity'] ?? 0,
-                'product_name':
-                    value['productName'] ?? value['product_name'] ?? 'Item',
-                'item_status': value['status'] ?? 'Pending',
-                'item_notes': value['notes'],
+                'quantity': (value['quantity'] as num?)?.toInt() ?? 0,
+                'item_id': (value['itemId'] as num?)?.toInt(),
+                'product_name': value['name'] ??
+                    value['productName'] ??
+                    value['product_name'] ??
+                    'Item',
+                'item_status': _displayKotStatus(value['status']),
+                'item_notes': value['notes'] ?? value['item_notes'],
               };
             }).toList()
           : <Map<String, dynamic>>[];
-      final tableId = (order['tableId'] as num?)?.toInt();
+      final tableId = (kot['tableId'] as num?)?.toInt();
+      final rawStatus = kot['status'] ?? 'Pending';
       kots.add({
-        'id': (kot['id'] as num?)?.toInt(),
+        'id': kotId,
         'order_id': orderId,
-        'kot_number': kot['kotNumber'] ?? 'KOT-$orderId',
-        'table_number': tableId == null
-            ? 'Takeaway'
-            : (tableNames[tableId] ?? 'Table $tableId'),
-        'type': order['type'] ?? 'Dine In',
-        'notes': order['notes'] ?? '',
-        'customer_name': order['customerName'] ?? 'Guest',
-        'status': kot['status'] ?? 'Pending',
-        'time': kot['createdAt'],
+        'kot_number': kot['kotNumber'] ?? 'KOT-$kotId',
+        'table_number': kot['tableName'] ??
+            (tableId == null
+                ? 'Takeaway'
+                : (tableNames[tableId] ?? 'Table $tableId')),
+        'type': kot['orderType'] ?? 'Dine In',
+        'notes': kot['notes'] ?? '',
+        'customer_name': kot['customerName'] ?? 'Guest',
+        'status': _displayKotStatus(rawStatus),
+        'time': kot['createdAt'] ?? kot['created_at'] ?? DateTime.now().toIso8601String(),
         'started_cooking_at': kot['startedCookingAt'],
         'ready_at': kot['readyAt'],
         'served_at': kot['servedAt'],
         'delay_reason': kot['delayReason'],
-        'chef_name': kot['chefName'],
+        'chef_name': kot['assignedChef'] ?? kot['chefName'],
         'priority': kot['priority'] ?? 'Normal',
-        'estimated_time': kot['estimatedTime'] ?? 15,
+        'estimated_time': (kot['estimatedMinutes'] as num?)?.toInt() ??
+            (kot['estimatedTime'] as num?)?.toInt() ??
+            15,
         'items': items,
       });
     }
@@ -236,6 +242,18 @@ class _KitchenScreenState extends State<KitchenScreen> {
     _checkForAutoDelays(kots);
   }
 
+  String _displayKotStatus(Object? status) {
+    final value = status?.toString().trim().toUpperCase() ?? 'PENDING';
+    return switch (value) {
+      'COOKING' || 'PREPARING' => 'Cooking',
+      'READY' => 'Ready',
+      'SERVED' || 'COMPLETED' => 'Served',
+      'DELAYED' => 'Delayed',
+      'CANCELLED' || 'CANCELLATION_NOTICE' => 'Cancelled',
+      _ => 'Pending',
+    };
+  }
+
   Future<void> _updateKOTStatus(
     int kotId,
     int orderId,
@@ -245,11 +263,35 @@ class _KitchenScreenState extends State<KitchenScreen> {
   }) async {
     try {
       if (await ApiMode.useBackendApi()) {
-        final value = newStatus == 'Delayed' ? 'Cooking' : newStatus;
-        await const BackendApiClient().patchJson(
-          '/api/v1/kitchen-tickets/$kotId/status?value=${Uri.encodeQueryComponent(value)}',
-          {},
-        );
+        final api = const BackendApiClient();
+        if (newStatus == 'Delayed') {
+          await api.postJson(
+            '/api/v1/kitchen-tickets/$kotId/delay-reason',
+            {'reason': delayReason ?? ''},
+          );
+        } else {
+          final ticket = _kots.cast<Map<String, dynamic>?>().firstWhere(
+                (value) => value?['id'] == kotId,
+                orElse: () => null,
+              );
+          final items = (ticket?['items'] as List? ?? const [])
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .where((item) => item['item_id'] != null)
+              .toList();
+          if (items.isEmpty) {
+            throw StateError('This kitchen ticket has no updatable items');
+          }
+          final status = newStatus.toUpperCase();
+          for (final item in items) {
+            final currentStatus = item['item_status']?.toString().toUpperCase();
+            if (currentStatus == status) continue;
+            await api.putJson(
+              '/api/v1/kitchen-tickets/$kotId/items/${item['item_id']}/status',
+              {'status': status},
+            );
+          }
+        }
         await _loadKOTs(silent: true);
         return;
       }
@@ -342,7 +384,12 @@ class _KitchenScreenState extends State<KitchenScreen> {
 
       _loadKOTs(silent: true);
     } catch (e) {
-      if (mounted) {}
+      debugPrint('Could not update KOT $kotId: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not update kitchen ticket: $e')),
+        );
+      }
     }
   }
 

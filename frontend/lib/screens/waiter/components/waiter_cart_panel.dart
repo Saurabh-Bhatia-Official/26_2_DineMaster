@@ -26,8 +26,6 @@ class WaiterCartPanel extends StatelessWidget {
   final ValueChanged<int>? onEditCartItem;
   final VoidCallback onClearCart;
   final VoidCallback onSendKOT;
-  final VoidCallback onPrintBill;
-  final VoidCallback onCheckout;
   final bool showWaiterAssignment;
   final bool showChefAssignment;
 
@@ -53,8 +51,6 @@ class WaiterCartPanel extends StatelessWidget {
     this.onEditCartItem,
     required this.onClearCart,
     required this.onSendKOT,
-    required this.onPrintBill,
-    required this.onCheckout,
     this.showWaiterAssignment = true,
     this.showChefAssignment = true,
   });
@@ -86,6 +82,18 @@ class WaiterCartPanel extends StatelessWidget {
             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.primary),
           ),
           const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Text(
+              'Add items and send this order to the kitchen. After serving, request the bill from the order.',
+              style: TextStyle(fontSize: 12, height: 1.35),
+            ),
+          ),
+          const SizedBox(height: 12),
 
           // Order Type & Table Selection
           Row(
@@ -198,7 +206,7 @@ class WaiterCartPanel extends StatelessWidget {
           // Cart Items List
           Expanded(
             child: cartItems.isEmpty
-                ? const Center(child: Text('Cart is empty', style: TextStyle(color: Colors.grey)))
+            ? const Center(child: Text('Choose items from the menu to build this order.', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)))
                 : ListView.builder(
                     itemCount: cartItems.length,
                     itemBuilder: (context, index) {
@@ -275,51 +283,23 @@ class WaiterCartPanel extends StatelessWidget {
           ),
           const SizedBox(height: 16),
 
-          // Primary Actions
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: cartItems.isEmpty ? null : onSendKOT,
-                  icon: const Icon(Icons.kitchen),
-                  label: const Text('Send KOT'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orange,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                ),
-              ),
-            ],
+          // Bill and payment actions belong to the served order workflow.
+          ElevatedButton.icon(
+            onPressed: cartItems.isEmpty || (orderType == 'Dine-In' && selectedTableId == null)
+                ? null
+                : onSendKOT,
+            icon: const Icon(Icons.kitchen),
+            label: const Text('Send Order to Kitchen'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
           ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: cartItems.isEmpty ? null : onPrintBill,
-                  icon: const Icon(Icons.receipt),
-                  label: const Text('Print Bill'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: cartItems.isEmpty ? null : onCheckout,
-                  icon: const Icon(Icons.payment),
-                  label: const Text('Checkout'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                ),
-              ),
-            ],
-          ),
+          if (orderType == 'Dine-In' && selectedTableId == null) ...[
+            const SizedBox(height: 6),
+            const Text('Select a table before sending.', textAlign: TextAlign.center, style: TextStyle(color: Colors.red, fontSize: 12)),
+          ],
           const SizedBox(height: 8),
           TextButton(
             onPressed: cartItems.isEmpty ? null : onClearCart,

@@ -18,6 +18,9 @@ import jakarta.persistence.LockModeType;
 
 public interface OrderRepository extends JpaRepository<Order, Long> {
 
+    @Query("select o.restaurant.id from Order o where o.id = :id")
+    Optional<Long> findRestaurantIdById(@Param("id") Long id);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from Order o where o.id = :id")
     Optional<Order> findForUpdateById(@Param("id") Long id);

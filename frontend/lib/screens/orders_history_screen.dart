@@ -7,6 +7,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../core/database/database_helper.dart';
+import '../core/api/api_mode.dart';
 import '../repositories/table_repository.dart';
 import '../repositories/order_api_repository.dart';
 import '../models/order_model.dart';
@@ -173,6 +174,25 @@ class _OrdersHistoryScreenState extends State<OrdersHistoryScreen> {
 
   void _showInvoice(Map<String, dynamic> order) async {
     final items = await _getOrderItems(order['id']);
+    if (await _useBackendApi()) {
+      try {
+        final bill = await _orderApiRepository.getBill(order['id'] as int);
+        order['invoice_no'] = bill['invoiceNo'];
+        order['invoice_issued_at'] = bill['issuedAt'];
+        order['order_no'] = bill['orderNo'];
+        order['subtotal'] = bill['subtotal'];
+        order['tax_amount'] = bill['taxAmount'];
+        order['discount_amount'] = bill['discountAmount'];
+        order['total_amount'] = bill['total'];
+        order['branch_name'] = bill['branchName'];
+        order['branch_code'] = bill['branchCode'];
+        order['table_number'] ??= bill['tableNumber'];
+        order['customer_name'] ??= bill['customerName'];
+        order['payment_method'] = bill['paymentMethod'] ?? order['payment_method'];
+      } catch (error) {
+        debugPrint('Could not load invoice details for order ${order['id']}: $error');
+      }
+    }
 
     showDialog(
       context: context,
@@ -182,7 +202,7 @@ class _OrdersHistoryScreenState extends State<OrdersHistoryScreen> {
           children: [
             Flexible(
               child: Text(
-                'Invoice #${order['id']}',
+                'Invoice #${order['invoice_no'] ?? order['id']}',
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -788,9 +808,18 @@ class _OrdersHistoryScreenState extends State<OrdersHistoryScreen> {
   ) async {
     final pdf = await _generatePdfDocument(order, items);
     await Printing.layoutPdf(
+      format: _receiptPageFormat(items.length),
       onLayout: (PdfPageFormat format) async => pdf.save(),
     );
   }
+
+  // roll80 has an infinite height. MultiPage needs a finite height, so size an
+  // 80 mm receipt page from the number of item rows.
+  PdfPageFormat _receiptPageFormat(int itemCount) => PdfPageFormat(
+    80 * PdfPageFormat.mm,
+    360 + itemCount * 24,
+    marginAll: 5 * PdfPageFormat.mm,
+  );
 
   void _previewInvoice(
     Map<String, dynamic> order,
@@ -799,7 +828,8 @@ class _OrdersHistoryScreenState extends State<OrdersHistoryScreen> {
     Navigator.of(context, rootNavigator: true).push(
       MaterialPageRoute(
         builder: (context) => PdfPreviewScreen(
-          title: 'Invoice #${order['id']}',
+          title: 'Invoice #${order['invoice_no'] ?? order['id']}',
+          pageFormat: _receiptPageFormat(items.length),
           buildPdf: (format) async {
             final pdf = await _generatePdfDocument(order, items);
             return pdf.save();
@@ -814,59 +844,84 @@ class _OrdersHistoryScreenState extends State<OrdersHistoryScreen> {
     List<Map<String, dynamic>> items,
   ) async {
     final pdf = pw.Document();
+    final pageFormat = _receiptPageFormat(items.length);
 
     pdf.addPage(
-      pw.Page(
+      pw.MultiPage(
+        pageFormat: pageFormat,
+        margin: const pw.EdgeInsets.symmetric(horizontal: 18, vertical: 20),
         build: (pw.Context context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text(
-                'Invoice #${order['id']}',
-                style: pw.TextStyle(
-                  fontSize: 24,
-                  fontWeight: pw.FontWeight.bold,
+          return <pw.Widget>[
+              if (order['branch_name'] != null)
+                pw.Center(
+                  child: pw.Text(
+                    order['branch_name'].toString(),
+                    textAlign: pw.TextAlign.center,
+                    style: pw.TextStyle(fontSize: 15, fontWeight: pw.FontWeight.bold),
+                  ),
+                ),
+              if (order['branch_code'] != null)
+                pw.Center(child: pw.Text(order['branch_code'].toString(), style: const pw.TextStyle(fontSize: 8))),
+              pw.SizedBox(height: 8),
+              pw.Center(
+                child: pw.Text(
+                  'TAX INVOICE',
+                  style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
                 ),
               ),
-              pw.SizedBox(height: 10),
-              pw.Text('Date: ${order['order_time']}'),
+              pw.Divider(),
+              pw.Text('Invoice: ${order['invoice_no'] ?? order['id']}'),
+              pw.Text('Order: ${order['order_no'] ?? order['id']}'),
+              pw.Text('Date: ${order['invoice_issued_at'] ?? order['order_time']}'),
               pw.Text('Type: ${order['type']}'),
-              if (order['table_number'] != null)
-                pw.Text('Table: ${order['table_number']}'),
-              if (order['customer_name'] != null)
-                pw.Text('Customer: ${order['customer_name']}'),
-              pw.SizedBox(height: 20),
+              if (order['table_number'] != null) pw.Text('Table: ${order['table_number']}'),
+              if (order['customer_name'] != null) pw.Text('Customer: ${order['customer_name']}'),
+              pw.SizedBox(height: 8),
               pw.Table.fromTextArray(
-                headers: ['Item', 'Qty', 'Price', 'Total'],
+                headers: ['Item', 'Qty', 'Amount'],
                 data: items
                     .map(
                       (item) => [
                         item['product_name'],
                         item['quantity'].toString(),
-                        'Rs. ${item['price']}',
                         'Rs. ${(item['price'] * item['quantity']).toStringAsFixed(2)}',
                       ],
                     )
                     .toList(),
+                headerStyle: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
+                cellStyle: const pw.TextStyle(fontSize: 8),
+                cellPadding: const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 2),
               ),
-              pw.SizedBox(height: 20),
-              pw.Align(
-                alignment: pw.Alignment.centerRight,
-                child: pw.Text(
-                  'Total: Rs. ${order['total_amount']}',
-                  style: pw.TextStyle(
-                    fontSize: 18,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          );
+              pw.Divider(),
+              if (order['subtotal'] != null) _receiptTotal('Subtotal', order['subtotal']),
+              if (order['discount_amount'] != null && (order['discount_amount'] as num) > 0)
+                _receiptTotal('Discount', '-Rs. ${order['discount_amount']}'),
+              if (order['tax_amount'] != null) _receiptTotal('Tax', order['tax_amount']),
+              _receiptTotal('TOTAL', order['total_amount'], bold: true),
+              pw.SizedBox(height: 8),
+              pw.Text('Payment: ${order['payment_method'] ?? order['payment_status'] ?? 'UNPAID'}'),
+              pw.SizedBox(height: 12),
+              pw.Center(child: pw.Text('Thank you. Please visit again!', textAlign: pw.TextAlign.center)),
+          ];
         },
       ),
     );
 
     return pdf;
+  }
+
+  pw.Widget _receiptTotal(String label, dynamic amount, {bool bold = false}) {
+    final style = pw.TextStyle(fontSize: bold ? 11 : 8, fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal);
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 2),
+      child: pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [
+          pw.Text(label, style: style),
+          pw.Text(amount is num ? 'Rs. ${amount.toStringAsFixed(2)}' : amount.toString(), style: style),
+        ],
+      ),
+    );
   }
 
   Future<void> _processPayment(int orderId, String method) async {
@@ -907,8 +962,7 @@ class _OrdersHistoryScreenState extends State<OrdersHistoryScreen> {
   }
 
   Future<bool> _useBackendApi() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool('use_backend_api') ?? false;
+    return ApiMode.useBackendApi();
   }
 
   bool _matchesOnlineFilters(OrderModel order) {
