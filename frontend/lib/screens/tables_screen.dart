@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:dine_master/core/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -13,6 +14,22 @@ import '../core/api/api_mode.dart';
 import '../services/backend_api_client.dart';
 import '../services/sync_service.dart';
 import '../widgets/searchable_dropdown.dart';
+
+class _TableStatusSummary {
+  const _TableStatusSummary(
+    this.label,
+    this.count,
+    this.icon,
+    this.color,
+    this.filter,
+  );
+
+  final String label;
+  final int count;
+  final IconData icon;
+  final Color color;
+  final String filter;
+}
 
 class TablesScreen extends StatefulWidget {
   const TablesScreen({super.key});
@@ -629,28 +646,28 @@ class _TablesScreenState extends State<TablesScreen> {
 
   // Color & Icon Scheme by Status
   Color _getStatusColor(String status, bool isHeld) {
-    if (isHeld) return Colors.purple;
+    if (isHeld) return const Color(0xFF8268A8);
     switch (status) {
       case 'Available':
-        return const Color(0xFF2E7D32); // Emerald Green
+        return const Color(0xFF548568);
       case 'Occupied':
-        return const Color(0xFF1565C0); // Vibrant Blue
+        return const Color(0xFF64747D);
       case 'Reserved':
-        return const Color(0xFFE65100); // Amber Orange
+        return AppColors.orange;
       case 'Ordering':
-        return const Color(0xFF3949AB); // Indigo
+        return const Color(0xFF71839A);
       case 'Preparing':
-        return const Color(0xFFF57C00); // Bright Orange
+        return const Color(0xFFB95D2D);
       case 'Bill Requested':
-        return const Color(0xFFF9A825); // Gold / Yellow
+        return const Color(0xFFB28A43);
       case 'Payment Pending':
-        return const Color(0xFFD84315); // Deep Amber
+        return const Color(0xFFD65A4A);
       case 'Paid':
-        return const Color(0xFF00897B); // Teal
+        return const Color(0xFF548B85);
       case 'Cleaning':
-        return const Color(0xFF0288D1); // Cyan Blue
+        return const Color(0xFF648A9A);
       case 'Out of Service':
-        return const Color(0xFF546E7A); // Slate Grey
+        return AppColors.muted;
       default:
         return Colors.blueGrey;
     }
@@ -2073,14 +2090,14 @@ class _TablesScreenState extends State<TablesScreen> {
   // Quick Status Transition
   Future<void> _updateStatus(TableModel table, String newStatus) async {
     try {
-      final current = table.status
-          .trim()
-          .toUpperCase()
-          .replaceAll(RegExp(r'[ -]+'), '_');
-      final target = newStatus
-          .trim()
-          .toUpperCase()
-          .replaceAll(RegExp(r'[ -]+'), '_');
+      final current = table.status.trim().toUpperCase().replaceAll(
+        RegExp(r'[ -]+'),
+        '_',
+      );
+      final target = newStatus.trim().toUpperCase().replaceAll(
+        RegExp(r'[ -]+'),
+        '_',
+      );
       const statusesThatMustBeCleanedFirst = {
         'OCCUPIED',
         'ORDERING',
@@ -2326,6 +2343,16 @@ class _TablesScreenState extends State<TablesScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Restaurant Table Management'),
+          titleTextStyle: const TextStyle(
+            color: AppColors.ink,
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -.3,
+          ),
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.white,
+          elevation: 0,
+          shape: const Border(bottom: BorderSide(color: AppColors.line)),
           actions: [
             IconButton(
               tooltip: 'Manage floors',
@@ -2333,13 +2360,13 @@ class _TablesScreenState extends State<TablesScreen> {
               onPressed: _manageFloors,
             ),
             IconButton(
-              icon: const Icon(Icons.refresh),
-              // tooltip disabled,
+              tooltip: 'Refresh tables',
+              icon: const Icon(Icons.refresh_rounded),
               onPressed: _loadTables,
             ),
             IconButton(
-              icon: const Icon(Icons.add_business),
-              // tooltip disabled,
+              tooltip: 'Add a table',
+              icon: const Icon(Icons.add_business_outlined),
               onPressed: () => _showTableConfigDialog(),
             ),
             const SizedBox(width: 8),
@@ -2348,6 +2375,13 @@ class _TablesScreenState extends State<TablesScreen> {
             isScrollable: true,
             labelColor: AppColors.primary,
             indicatorColor: AppColors.primary,
+            indicatorSize: TabBarIndicatorSize.label,
+            labelStyle: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+            unselectedLabelStyle: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+            ),
+            dividerColor: AppColors.line,
             tabs: [
               Tab(icon: Icon(Icons.grid_view), text: 'Table Layout Grid'),
               Tab(
@@ -2392,241 +2426,424 @@ class _TablesScreenState extends State<TablesScreen> {
     final filtered = _filteredTables;
     final counts = _statusCounts;
 
-    return Column(
-      children: [
-        // 1. Real-Time KPI Stats Overview
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          color: Colors.grey.shade50,
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _buildKpiCard(
-                  'Total Tables',
-                  '${counts['Total']}',
-                  Icons.table_bar,
-                  Colors.grey.shade800,
-                  'All',
-                ),
-                const SizedBox(width: 8),
-                _buildKpiCard(
-                  'Available',
-                  '${counts['Available']}',
-                  Icons.check_circle_outline,
-                  const Color(0xFF2E7D32),
-                  'Available',
-                ),
-                const SizedBox(width: 8),
-                _buildKpiCard(
-                  'Occupied',
-                  '${counts['Occupied']}',
-                  Icons.people,
-                  const Color(0xFF1565C0),
-                  'Occupied',
-                ),
-                const SizedBox(width: 8),
-                _buildKpiCard(
-                  'In Kitchen',
-                  '${counts['In Kitchen']}',
-                  Icons.outdoor_grill_outlined,
-                  const Color(0xFFE65100),
-                  'Preparing',
-                ),
-                const SizedBox(width: 8),
-                _buildKpiCard(
-                  'Billing',
-                  '${counts['Billing']}',
-                  Icons.receipt_long,
-                  const Color(0xFFF9A825),
-                  'Bill Requested',
-                ),
-                const SizedBox(width: 8),
-                _buildKpiCard(
-                  'Cleaning',
-                  '${counts['Cleaning']}',
-                  Icons.cleaning_services_outlined,
-                  const Color(0xFF0288D1),
-                  'Cleaning',
-                ),
-                const SizedBox(width: 8),
-                _buildKpiCard(
-                  'Reserved',
-                  '${counts['Reserved']}',
-                  Icons.bookmark_added_outlined,
-                  const Color(0xFF7B1FA2),
-                  'Reserved',
-                ),
-              ],
+    final width = MediaQuery.sizeOf(context).width;
+    final compact = width < 640;
+    final statuses = <_TableStatusSummary>[
+      _TableStatusSummary(
+        'Total',
+        counts['Total'] ?? 0,
+        Icons.table_bar_outlined,
+        AppColors.ink,
+        'All',
+      ),
+      _TableStatusSummary(
+        'Available',
+        counts['Available'] ?? 0,
+        Icons.check_circle_outline_rounded,
+        const Color(0xFF548568),
+        'Available',
+      ),
+      _TableStatusSummary(
+        'Occupied',
+        counts['Occupied'] ?? 0,
+        Icons.people_alt_outlined,
+        const Color(0xFF64747D),
+        'Occupied',
+      ),
+      _TableStatusSummary(
+        'Reserved',
+        counts['Reserved'] ?? 0,
+        Icons.bookmark_border_rounded,
+        AppColors.orange,
+        'Reserved',
+      ),
+      _TableStatusSummary(
+        'In kitchen',
+        counts['In Kitchen'] ?? 0,
+        Icons.outdoor_grill_outlined,
+        const Color(0xFFB95D2D),
+        'Preparing',
+      ),
+      _TableStatusSummary(
+        'Billing',
+        counts['Billing'] ?? 0,
+        Icons.receipt_long_outlined,
+        const Color(0xFFB28A43),
+        'Bill Requested',
+      ),
+      _TableStatusSummary(
+        'Cleaning',
+        counts['Cleaning'] ?? 0,
+        Icons.cleaning_services_outlined,
+        const Color(0xFF648A9A),
+        'Cleaning',
+      ),
+    ];
+
+    return Container(
+      color: AppColors.background,
+      child: Column(
+        children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+              compact ? 14 : 22,
+              compact ? 16 : 22,
+              compact ? 14 : 22,
+              0,
             ),
-          ),
-        ),
-
-        // 2. Multi-Filter & Search Bar
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
-          ),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final isNarrow = constraints.maxWidth < 720;
-              final searchField = TextField(
-                decoration: InputDecoration(
-                  hintText: 'Search by table #, name, section, or notes...',
-                  prefixIcon: const Icon(Icons.search, size: 20),
-                  isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(
-                    vertical: 8,
-                    horizontal: 12,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                onChanged: (val) => setState(() => _searchQuery = val),
-              );
-
-              final dropdowns = SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    DropdownButton<String>(
-                      value: _selectedSection,
-                      underline: const SizedBox(),
-                      items: _sections
-                          .map(
-                            (s) => DropdownMenuItem(
-                              value: s,
-                              child: Text('Area: $s'),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Dining floor',
+                            style: TextStyle(
+                              color: AppColors.ink,
+                              fontSize: compact ? 19 : 22,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -.55,
                             ),
-                          )
-                          .toList(),
-                      onChanged: (val) {
-                        if (val != null) setState(() => _selectedSection = val);
-                      },
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${counts['Total'] ?? 0} tables · Live service overview',
+                            style: const TextStyle(
+                              color: AppColors.muted,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(width: 12),
-                    DropdownButton<String>(
-                      value: _capacityFilter,
-                      underline: const SizedBox(),
-                      items: const [
-                        DropdownMenuItem(value: 'All', child: Text('Cap: All')),
-                        DropdownMenuItem(
-                          value: '2 Seats',
-                          child: Text('Cap: 2 Seats'),
-                        ),
-                        DropdownMenuItem(
-                          value: '4 Seats',
-                          child: Text('Cap: 4 Seats'),
-                        ),
-                        DropdownMenuItem(
-                          value: '6+ Seats',
-                          child: Text('Cap: 6+ Seats'),
-                        ),
-                      ],
-                      onChanged: (val) {
-                        if (val != null) setState(() => _capacityFilter = val);
-                      },
-                    ),
-                    const SizedBox(width: 12),
-                    DropdownButton<String>(
-                      value: _sortBy,
-                      underline: const SizedBox(),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'Table Number',
-                          child: Text('Sort: Number'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Capacity',
-                          child: Text('Sort: Capacity'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Status',
-                          child: Text('Sort: Status'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Section',
-                          child: Text('Sort: Area'),
-                        ),
-                      ],
-                      onChanged: (val) {
-                        if (val != null) setState(() => _sortBy = val);
-                      },
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(11),
+                        border: Border.all(color: AppColors.line),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 7,
+                            height: 7,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFF548568),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 7),
+                          Text(
+                            '${counts['Available'] ?? 0} ready',
+                            style: const TextStyle(
+                              color: AppColors.ink,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
-              );
-
-              if (isNarrow) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [searchField, const SizedBox(height: 8), dropdowns],
-                );
-              }
-
-              return Row(
-                children: [
-                  Expanded(flex: 3, child: searchField),
-                  const SizedBox(width: 12),
-                  dropdowns,
-                ],
-              );
-            },
-          ),
-        ),
-
-        // 3. Grid of Table Cards
-        Expanded(
-          child: filtered.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                const SizedBox(height: 16),
+                SizedBox(
+                  height: compact ? 68 : 78,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: statuses.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 9),
+                    itemBuilder: (context, index) => _buildKpiCard(
+                      statuses[index].label,
+                      '${statuses[index].count}',
+                      statuses[index].icon,
+                      statuses[index].color,
+                      statuses[index].filter,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 13),
+                if (_sections.length > 1)
+                  SizedBox(
+                    height: 36,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _sections.length,
+                      separatorBuilder: (_, _) => const SizedBox(width: 7),
+                      itemBuilder: (context, index) {
+                        final section = _sections[index];
+                        final selected = _selectedSection == section;
+                        return ChoiceChip(
+                          label: Text(
+                            section == 'All' ? 'All floors' : section,
+                          ),
+                          selected: selected,
+                          onSelected: (_) =>
+                              setState(() => _selectedSection = section),
+                          showCheckmark: false,
+                          labelStyle: TextStyle(
+                            color: selected ? Colors.white : AppColors.muted,
+                            fontSize: 11,
+                            fontWeight: selected
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                          ),
+                          selectedColor: AppColors.ink,
+                          backgroundColor: Colors.white,
+                          side: BorderSide(
+                            color: selected ? AppColors.ink : AppColors.line,
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 5),
+                          visualDensity: VisualDensity.compact,
+                        );
+                      },
+                    ),
+                  ),
+                const SizedBox(height: 13),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final search = TextField(
+                      decoration: InputDecoration(
+                        hintText: 'Search table, guest or area',
+                        prefixIcon: const Icon(Icons.search_rounded, size: 19),
+                        isDense: true,
+                        filled: true,
+                        fillColor: Colors.white,
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: 13,
+                          horizontal: 13,
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: AppColors.line),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: AppColors.orange,
+                            width: 1.3,
+                          ),
+                        ),
+                      ),
+                      onChanged: (value) =>
+                          setState(() => _searchQuery = value),
+                    );
+                    final controls = Wrap(
+                      spacing: 8,
+                      children: [
+                        _filterDropdown<String>(
+                          value: _capacityFilter,
+                          hint: 'Capacity',
+                          items: const [
+                            'All',
+                            '2 Seats',
+                            '4 Seats',
+                            '6+ Seats',
+                          ],
+                          label: (value) => value == 'All' ? 'Any size' : value,
+                          onChanged: (value) =>
+                              setState(() => _capacityFilter = value),
+                        ),
+                        _filterDropdown<String>(
+                          value: _sortBy,
+                          hint: 'Sort',
+                          items: const [
+                            'Table Number',
+                            'Capacity',
+                            'Status',
+                            'Section',
+                          ],
+                          label: (value) => value == 'Table Number'
+                              ? 'Table no.'
+                              : value == 'Section'
+                              ? 'Floor'
+                              : value,
+                          onChanged: (value) => setState(() => _sortBy = value),
+                        ),
+                      ],
+                    );
+                    if (constraints.maxWidth < 680) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          search,
+                          const SizedBox(height: 9),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: controls,
+                          ),
+                        ],
+                      );
+                    }
+                    return Row(
+                      children: [
+                        Expanded(child: search),
+                        const SizedBox(width: 10),
+                        controls,
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 11),
+                if (!compact)
+                  Row(
                     children: [
-                      Icon(
-                        Icons.table_restaurant_outlined,
-                        size: 64,
-                        color: Colors.grey.shade300,
+                      const Icon(
+                        Icons.touch_app_outlined,
+                        color: AppColors.muted,
+                        size: 14,
                       ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'No tables match the selected filters',
-                        style: TextStyle(fontSize: 16, color: Colors.grey),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Select a table to view its service details and quick actions.',
+                          style: TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 10,
+                          ),
+                        ),
                       ),
-                      const SizedBox(height: 8),
-                      TextButton(
-                        onPressed: () {
-                          setState(() {
-                            _searchQuery = '';
-                            _selectedSection = 'All';
-                            _statusFilter = 'All';
-                            _capacityFilter = 'All';
-                          });
-                        },
-                        child: const Text('Reset Filters'),
+                      Text(
+                        '${filtered.length} shown',
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ],
                   ),
-                )
-              : GridView.builder(
-                  padding: const EdgeInsets.all(16),
-                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 380,
-                    mainAxisExtent: 280,
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
+                const SizedBox(height: 12),
+              ],
+            ),
+          ),
+          Expanded(
+            child: filtered.isEmpty
+                ? Center(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 58,
+                            height: 58,
+                            decoration: const BoxDecoration(
+                              color: AppColors.orangeLight,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.table_restaurant_outlined,
+                              color: AppColors.orange,
+                              size: 27,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'No tables found',
+                            style: TextStyle(
+                              color: AppColors.ink,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          const Text(
+                            'Try a different floor or clear your filters.',
+                            style: TextStyle(
+                              color: AppColors.muted,
+                              fontSize: 11,
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () => setState(() {
+                              _searchQuery = '';
+                              _selectedSection = 'All';
+                              _statusFilter = 'All';
+                              _capacityFilter = 'All';
+                            }),
+                            child: const Text('Reset filters'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : GridView.builder(
+                    padding: EdgeInsets.fromLTRB(
+                      compact ? 14 : 22,
+                      2,
+                      compact ? 14 : 22,
+                      24,
+                    ),
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 390,
+                          mainAxisExtent: 286,
+                          crossAxisSpacing: 13,
+                          mainAxisSpacing: 13,
+                        ),
+                    itemCount: filtered.length,
+                    itemBuilder: (context, index) =>
+                        _buildTableCard(filtered[index])
+                            .animate()
+                            .fadeIn(
+                              duration: 250.ms,
+                              delay: (index.clamp(0, 8) * 35).ms,
+                            )
+                            .slideY(begin: .025, duration: 250.ms),
                   ),
-                  itemCount: filtered.length,
-                  itemBuilder: (context, index) {
-                    final item = filtered[index];
-                    return _buildTableCard(item);
-                  },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _filterDropdown<T extends String>({
+    required T value,
+    required String hint,
+    required List<T> items,
+    required String Function(T) label,
+    required ValueChanged<T> onChanged,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: AppColors.line),
+        borderRadius: BorderRadius.circular(11),
+      ),
+      child: DropdownButton<T>(
+        value: value,
+        isDense: true,
+        underline: const SizedBox.shrink(),
+        borderRadius: BorderRadius.circular(12),
+        icon: const Icon(Icons.expand_more_rounded, size: 18),
+        hint: Text(hint),
+        items: items
+            .map(
+              (item) => DropdownMenuItem<T>(
+                value: item,
+                child: Text(
+                  label(item),
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: AppColors.ink, fontSize: 11),
                 ),
-        ),
-      ],
+              ),
+            )
+            .toList(),
+        onChanged: (next) {
+          if (next != null) onChanged(next);
+        },
+      ),
     );
   }
 
@@ -2644,38 +2861,62 @@ class _TablesScreenState extends State<TablesScreen> {
           _statusFilter = isSelected ? 'All' : filterKey;
         });
       },
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(13),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        width: 154,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: isSelected ? color.withAlpha(35) : Colors.white,
-          borderRadius: BorderRadius.circular(10),
+          color: isSelected ? color.withValues(alpha: .08) : Colors.white,
+          borderRadius: BorderRadius.circular(13),
           border: Border.all(
-            color: isSelected ? color : Colors.grey.shade200,
-            width: isSelected ? 1.8 : 1,
+            color: isSelected ? color.withValues(alpha: .7) : AppColors.line,
+            width: isSelected ? 1.3 : 1,
           ),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x060D1117),
+              blurRadius: 8,
+              offset: Offset(0, 3),
+            ),
+          ],
         ),
         child: Row(
           children: [
-            Icon(icon, color: color, size: 18),
-            const SizedBox(width: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  count,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: color,
+            Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: .1),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Icon(icon, color: color, size: 16),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    count,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                    ),
                   ),
-                ),
-                Text(
-                  label,
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
-                ),
-              ],
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 9,
+                      color: AppColors.muted,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -2726,646 +2967,717 @@ class _TablesScreenState extends State<TablesScreen> {
     final statusColor = _getStatusColor(displayStatus, isHeld);
     final statusIcon = _getStatusIcon(displayStatus);
 
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: statusColor.withAlpha(120), width: 1.2),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header Bar (Overflow-safe)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            color: statusColor.withAlpha(25),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    var hovered = false;
+    return StatefulBuilder(
+      builder: (context, setCardState) => MouseRegion(
+        onEnter: (_) => setCardState(() => hovered = true),
+        onExit: (_) => setCardState(() => hovered = false),
+        child: AnimatedScale(
+          scale: hovered ? 1.012 : 1,
+          duration: const Duration(milliseconds: 170),
+          curve: Curves.easeOutCubic,
+          child: Card(
+            margin: EdgeInsets.zero,
+            elevation: hovered ? 5 : 1,
+            shadowColor: AppColors.ink.withValues(alpha: .12),
+            color: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(
+                color: hovered
+                    ? statusColor.withValues(alpha: .55)
+                    : AppColors.line,
+                width: hovered ? 1.2 : 1,
+              ),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
+                // Header Bar (Overflow-safe)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  color: statusColor.withValues(alpha: .09),
                   child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      CircleAvatar(
-                        radius: 12,
-                        backgroundColor: statusColor,
-                        child: Icon(statusIcon, size: 14, color: Colors.white),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        table.tableNumber,
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                          color: statusColor,
+                      Expanded(
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 12,
+                              backgroundColor: statusColor,
+                              child: Icon(
+                                statusIcon,
+                                size: 14,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              table.tableNumber,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                                color: statusColor,
+                              ),
+                            ),
+                            if (table.name != null &&
+                                table.name!.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  '(${table.name})',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade700,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
-                      if (table.name != null && table.name!.isNotEmpty) ...[
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Text(
-                            '(${table.name})',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade700,
-                              fontWeight: FontWeight.w500,
-                            ),
-                            overflow: TextOverflow.ellipsis,
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 2.5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: statusColor,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          displayStatus.toUpperCase(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
                           ),
                         ),
-                      ],
+                      ),
                     ],
                   ),
                 ),
-                const SizedBox(width: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
-                    vertical: 2.5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: statusColor,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    displayStatus.toUpperCase(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 9.5,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
 
-          // Body Details
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 12.0,
-                vertical: 8.0,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Merged Group Indicator
-                  if (mergedMembers.isNotEmpty || isMergedMember) ...[
-                    Row(
-                      children: [
-                        Icon(
-                          mergedMembers.isNotEmpty
-                              ? Icons.merge_type
-                              : Icons.call_split,
-                          size: 14,
-                          color: Colors.blue,
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            mergedMembers.isNotEmpty
-                                ? 'Merged: ${[table, ...mergedMembers].map((t) => t.tableNumber).join(' + ')} • Capacity: ${table.capacity + mergedMembers.fold<int>(0, (s, t) => s + t.capacity)}'
-                                : 'Part of merged group: Table ${mergedIntoNumber ?? ''}',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.blue,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
+                // Body Details
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12.0,
+                      vertical: 8.0,
                     ),
-                    const SizedBox(height: 6),
-                  ],
-                  // Badges: Section & Capacity & Type & All Reservations Count (Overflow-safe)
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _buildChip(table.section, Icons.location_on_outlined),
-                        const SizedBox(width: 6),
-                        _buildChip('${table.capacity} Seats', Icons.chair_alt),
-                        const SizedBox(width: 6),
-                        _buildChip(table.tableType, Icons.table_restaurant),
-                        if (allBookings.isNotEmpty) ...[
-                          const SizedBox(width: 6),
-                          InkWell(
-                            onTap: () =>
-                                _showAllReservationsDialog(table, allBookings),
-                            borderRadius: BorderRadius.circular(4),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.amber.shade100,
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(
-                                  color: Colors.amber.shade600,
-                                  width: 0.8,
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.bookmark,
-                                    size: 12,
-                                    color: Colors.amber.shade900,
-                                  ),
-                                  const SizedBox(width: 3),
-                                  Text(
-                                    '${allBookings.length} ${allBookings.length == 1 ? 'Booking' : 'Bookings'}',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.amber.shade900,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const Spacer(),
-
-                  // Dynamic Context Information
-                  if (hasActiveOrder) ...[
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                        // Merged Group Indicator
+                        if (mergedMembers.isNotEmpty || isMergedMember) ...[
+                          Row(
                             children: [
-                              Text(
-                                'Order #${activeOrder['id']} • $orderItemsCount items',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                ),
-                                overflow: TextOverflow.ellipsis,
+                              Icon(
+                                mergedMembers.isNotEmpty
+                                    ? Icons.merge_type
+                                    : Icons.call_split,
+                                size: 14,
+                                color: Colors.blue,
                               ),
-                              Text(
-                                'Guest: ${activeOrder['customer_name'] ?? 'Guest'} • ${_getOccupiedDuration(activeOrder['order_time'])}',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey.shade600,
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  mergedMembers.isNotEmpty
+                                      ? 'Merged: ${[table, ...mergedMembers].map((t) => t.tableNumber).join(' + ')} • Capacity: ${table.capacity + mergedMembers.fold<int>(0, (s, t) => s + t.capacity)}'
+                                      : 'Part of merged group: Table ${mergedIntoNumber ?? ''}',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.blue,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                                overflow: TextOverflow.ellipsis,
                               ),
                             ],
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '₹${(activeOrder['total_amount'] as num?)?.toStringAsFixed(2) ?? "0.00"}',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.primary,
+                          const SizedBox(height: 6),
+                        ],
+                        // Badges: Section & Capacity & Type & All Reservations Count (Overflow-safe)
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              _buildChip(
+                                table.section,
+                                Icons.location_on_outlined,
+                              ),
+                              const SizedBox(width: 6),
+                              _buildChip(
+                                '${table.capacity} Seats',
+                                Icons.chair_alt,
+                              ),
+                              const SizedBox(width: 6),
+                              _buildChip(
+                                table.tableType,
+                                Icons.table_restaurant,
+                              ),
+                              if (allBookings.isNotEmpty) ...[
+                                const SizedBox(width: 6),
+                                InkWell(
+                                  onTap: () => _showAllReservationsDialog(
+                                    table,
+                                    allBookings,
+                                  ),
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.amber.shade100,
+                                      borderRadius: BorderRadius.circular(4),
+                                      border: Border.all(
+                                        color: Colors.amber.shade600,
+                                        width: 0.8,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.bookmark,
+                                          size: 12,
+                                          color: Colors.amber.shade900,
+                                        ),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          '${allBookings.length} ${allBookings.length == 1 ? 'Booking' : 'Bookings'}',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.amber.shade900,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ),
-                      ],
-                    ),
-                  ] else if (isHeld) ...[
-                    Text(
-                      'Held Order #${activeOrder['id']}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.purple,
-                        fontSize: 13,
-                      ),
-                    ),
-                    Text(
-                      'Total: ₹${activeOrder['total_amount']} • ${_getOccupiedDuration(activeOrder['order_time'])}',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                  ] else if (activeBooking != null) ...[
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.bookmark_added,
-                          size: 16,
-                          color: Colors.amber,
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            'Reserved Now: ${activeBooking['customer_name']} (${activeBooking['guest_count']} guests)',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.amber,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Slot: ${DateFormat('hh:mm a').format(DateTime.parse(activeBooking['booking_time']))} - ${DateFormat('hh:mm a').format(DateTime.parse(activeBooking['booking_time']).add(const Duration(hours: 1)))}',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                    if (allBookings.length > 1) ...[
-                      const SizedBox(height: 2),
-                      InkWell(
-                        onTap: () =>
-                            _showAllReservationsDialog(table, allBookings),
-                        child: Text(
-                          'View all ${allBookings.length} reservations',
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Colors.blue,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ] else if (upcomingBookings.isNotEmpty) ...[
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.calendar_today,
-                          size: 14,
-                          color: Colors.amber.shade800,
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            'Next: ${upcomingBookings.first['customer_name']} (${upcomingBookings.first['guest_count']} guests)',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'At: ${DateFormat('dd MMM, hh:mm a').format(DateTime.parse(upcomingBookings.first['booking_time']))}',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                    if (allBookings.length > 1) ...[
-                      const SizedBox(height: 2),
-                      InkWell(
-                        onTap: () =>
-                            _showAllReservationsDialog(table, allBookings),
-                        child: Text(
-                          'View all ${allBookings.length} reservations',
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Colors.blue,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ] else if (table.status == 'Cleaning') ...[
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.cleaning_services,
-                          size: 16,
-                          color: Colors.cyan,
-                        ),
-                        const SizedBox(width: 6),
-                        const Expanded(
-                          child: Text(
-                            'Table is currently being sanitized',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.cyan,
-                              fontWeight: FontWeight.w600,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ] else if (table.status == 'Occupied') ...[
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.people,
-                          size: 16,
-                          color: Color(0xFF1565C0),
-                        ),
-                        const SizedBox(width: 6),
-                        const Expanded(
-                          child: Text(
-                            'Table manually occupied (Walk-in)',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFF1565C0),
-                              fontWeight: FontWeight.w600,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ] else ...[
-                    Text(
-                      'Ready for new party (${table.capacity} guests)',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                  ],
-                  const Spacer(),
-                ],
-              ),
-            ),
-          ),
+                        const Spacer(),
 
-          const Divider(height: 1),
-
-          // Contextual Action Buttons (Horizontal scroll ensures no RenderFlex overflow)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            color: Colors.grey.shade50,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                IconButton(
-                  tooltip: 'Create QR ordering session',
-                  icon: const Icon(Icons.qr_code_2, size: 20),
-                  onPressed: () => _createQrSession(table),
-                ),
-                // Configure / Settings
-                IconButton(
-                  icon: const Icon(
-                    Icons.settings_outlined,
-                    size: 18,
-                    color: Colors.grey,
-                  ),
-                  onPressed: () => _showTableConfigDialog(table),
-                ),
-
-                // Context Actions
-                Flexible(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (isMergedMember)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 6,
-                            ),
-                            child: Text(
-                              'Order on Table $mergedIntoNumber',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Colors.blueGrey,
-                                fontWeight: FontWeight.w500,
+                        // Dynamic Context Information
+                        if (hasActiveOrder) ...[
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Order #${activeOrder['id']} • $orderItemsCount items',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    Text(
+                                      'Guest: ${activeOrder['customer_name'] ?? 'Guest'} • ${_getOccupiedDuration(activeOrder['order_time'])}',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                          )
-                        else if (table.status == 'Available' &&
-                            !hasActiveOrder &&
-                            !isHeld &&
-                            activeBooking == null) ...[
-                          // Manual Occupation anytime for walk-in guests
-                          OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 4,
+                              const SizedBox(width: 8),
+                              Text(
+                                '₹${(activeOrder['total_amount'] as num?)?.toStringAsFixed(2) ?? "0.00"}',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.primary,
+                                ),
                               ),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            icon: const Icon(Icons.people_outline, size: 13),
-                            label: const Text(
-                              'Occupy',
-                              style: TextStyle(fontSize: 10),
-                            ),
-                            onPressed: () => _updateStatus(table, 'Occupied'),
-                          ),
-                          const SizedBox(width: 4),
-                          OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 4,
-                              ),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            icon: const Icon(Icons.bookmark_outline, size: 13),
-                            label: const Text(
-                              'Reserve',
-                              style: TextStyle(fontSize: 10),
-                            ),
-                            onPressed: () => _showReservationDialog(table),
-                          ),
-                          const SizedBox(width: 4),
-                          ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF2E7D32),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            icon: const Icon(Icons.add, size: 13),
-                            label: const Text(
-                              'New Order',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            onPressed: () {
-                              context.go(
-                                '/dashboard/waiter_order?tableId=${table.id}',
-                              );
-                            },
-                          ),
-                        ] else if (hasActiveOrder) ...[
-                          OutlinedButton(
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 4,
-                              ),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            onPressed: () =>
-                                _showOrderDetailsSheet(table, activeOrder),
-                            child: const Text(
-                              'View Order',
-                              style: TextStyle(fontSize: 10),
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            icon: const Icon(Icons.point_of_sale, size: 13),
-                            label: const Text(
-                              'Open Order',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            onPressed: () {
-                              context.go(
-                                '/dashboard/waiter_order?tableId=${table.id}',
-                              );
-                            },
+                            ],
                           ),
                         ] else if (isHeld) ...[
-                          ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.purple,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 6,
+                          Text(
+                            'Held Order #${activeOrder['id']}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.purple,
+                              fontSize: 13,
+                            ),
+                          ),
+                          Text(
+                            'Total: ₹${activeOrder['total_amount']} • ${_getOccupiedDuration(activeOrder['order_time'])}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ] else if (activeBooking != null) ...[
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.bookmark_added,
+                                size: 16,
+                                color: Colors.amber,
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  'Reserved Now: ${activeBooking['customer_name']} (${activeBooking['guest_count']} guests)',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.amber,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Slot: ${DateFormat('hh:mm a').format(DateTime.parse(activeBooking['booking_time']))} - ${DateFormat('hh:mm a').format(DateTime.parse(activeBooking['booking_time']).add(const Duration(hours: 1)))}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade700,
+                            ),
+                          ),
+                          if (allBookings.length > 1) ...[
+                            const SizedBox(height: 2),
+                            InkWell(
+                              onTap: () => _showAllReservationsDialog(
+                                table,
+                                allBookings,
+                              ),
+                              child: Text(
+                                'View all ${allBookings.length} reservations',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.blue,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
-                            icon: const Icon(Icons.play_arrow, size: 14),
-                            label: const Text(
-                              'Resume Order',
-                              style: TextStyle(fontSize: 11),
-                            ),
-                            onPressed: () {
-                              context.go(
-                                '/dashboard/waiter_order?tableId=${table.id}',
-                              );
-                            },
+                          ],
+                        ] else if (upcomingBookings.isNotEmpty) ...[
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.calendar_today,
+                                size: 14,
+                                color: Colors.amber.shade800,
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  'Next: ${upcomingBookings.first['customer_name']} (${upcomingBookings.first['guest_count']} guests)',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
                           ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'At: ${DateFormat('dd MMM, hh:mm a').format(DateTime.parse(upcomingBookings.first['booking_time']))}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                          if (allBookings.length > 1) ...[
+                            const SizedBox(height: 2),
+                            InkWell(
+                              onTap: () => _showAllReservationsDialog(
+                                table,
+                                allBookings,
+                              ),
+                              child: Text(
+                                'View all ${allBookings.length} reservations',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.blue,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
                         ] else if (table.status == 'Cleaning') ...[
-                          ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF0288D1),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.cleaning_services,
+                                size: 16,
+                                color: Colors.cyan,
                               ),
-                            ),
-                            icon: const Icon(Icons.check, size: 16),
-                            label: const Text(
-                              'Mark Available',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
+                              const SizedBox(width: 6),
+                              const Expanded(
+                                child: Text(
+                                  'Table is currently being sanitized',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.cyan,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
-                            ),
-                            onPressed: () => _updateStatus(table, 'Available'),
+                            ],
                           ),
-                        ] else if (table.status == 'Occupied' ||
-                            activeBooking != null) ...[
-                          OutlinedButton(
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 4,
+                        ] else if (table.status == 'Occupied') ...[
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.people,
+                                size: 16,
+                                color: Color(0xFF1565C0),
                               ),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            onPressed: () => _updateStatus(table, 'Available'),
-                            child: const Text(
-                              'Available',
-                              style: TextStyle(fontSize: 10),
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          OutlinedButton(
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 4,
+                              const SizedBox(width: 6),
+                              const Expanded(
+                                child: Text(
+                                  'Table manually occupied (Walk-in)',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF1565C0),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            onPressed: () => _showReservationDialog(table),
-                            child: const Text(
-                              'Reserve',
-                              style: TextStyle(fontSize: 10),
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF2E7D32),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            onPressed: () => context.go(
-                              '/dashboard/waiter_order?tableId=${table.id}',
-                            ),
-                            child: const Text(
-                              'Start Order',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                            ],
                           ),
                         ] else ...[
-                          ElevatedButton(
-                            onPressed: () => _updateStatus(table, 'Available'),
-                            child: const Text(
-                              'Mark Available',
-                              style: TextStyle(fontSize: 11),
+                          Text(
+                            'Ready for new party (${table.capacity} guests)',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
                             ),
                           ),
                         ],
+                        const Spacer(),
                       ],
                     ),
+                  ),
+                ),
+
+                const Divider(height: 1),
+
+                // Contextual Action Buttons (Horizontal scroll ensures no RenderFlex overflow)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  color: const Color(0xFFFAF8F6),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      IconButton(
+                        tooltip: 'Create QR ordering session',
+                        icon: const Icon(Icons.qr_code_2, size: 20),
+                        onPressed: () => _createQrSession(table),
+                      ),
+                      // Configure / Settings
+                      IconButton(
+                        icon: const Icon(
+                          Icons.settings_outlined,
+                          size: 18,
+                          color: Colors.grey,
+                        ),
+                        onPressed: () => _showTableConfigDialog(table),
+                      ),
+
+                      // Context Actions
+                      Flexible(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (isMergedMember)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 6,
+                                  ),
+                                  child: Text(
+                                    'Order on Table $mergedIntoNumber',
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.blueGrey,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                )
+                              else if (table.status == 'Available' &&
+                                  !hasActiveOrder &&
+                                  !isHeld &&
+                                  activeBooking == null) ...[
+                                // Manual Occupation anytime for walk-in guests
+                                OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 4,
+                                    ),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  icon: const Icon(
+                                    Icons.people_outline,
+                                    size: 13,
+                                  ),
+                                  label: const Text(
+                                    'Occupy',
+                                    style: TextStyle(fontSize: 10),
+                                  ),
+                                  onPressed: () =>
+                                      _updateStatus(table, 'Occupied'),
+                                ),
+                                const SizedBox(width: 4),
+                                OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 4,
+                                    ),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  icon: const Icon(
+                                    Icons.bookmark_outline,
+                                    size: 13,
+                                  ),
+                                  label: const Text(
+                                    'Reserve',
+                                    style: TextStyle(fontSize: 10),
+                                  ),
+                                  onPressed: () =>
+                                      _showReservationDialog(table),
+                                ),
+                                const SizedBox(width: 4),
+                                ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF2E7D32),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  icon: const Icon(Icons.add, size: 13),
+                                  label: const Text(
+                                    'New Order',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  onPressed: () {
+                                    context.go(
+                                      '/dashboard/waiter_order?tableId=${table.id}',
+                                    );
+                                  },
+                                ),
+                              ] else if (hasActiveOrder) ...[
+                                OutlinedButton(
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 4,
+                                    ),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  onPressed: () => _showOrderDetailsSheet(
+                                    table,
+                                    activeOrder,
+                                  ),
+                                  child: const Text(
+                                    'View Order',
+                                    style: TextStyle(fontSize: 10),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppColors.primary,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  icon: const Icon(
+                                    Icons.point_of_sale,
+                                    size: 13,
+                                  ),
+                                  label: const Text(
+                                    'Open Order',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  onPressed: () {
+                                    context.go(
+                                      '/dashboard/waiter_order?tableId=${table.id}',
+                                    );
+                                  },
+                                ),
+                              ] else if (isHeld) ...[
+                                ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.purple,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 6,
+                                    ),
+                                  ),
+                                  icon: const Icon(Icons.play_arrow, size: 14),
+                                  label: const Text(
+                                    'Resume Order',
+                                    style: TextStyle(fontSize: 11),
+                                  ),
+                                  onPressed: () {
+                                    context.go(
+                                      '/dashboard/waiter_order?tableId=${table.id}',
+                                    );
+                                  },
+                                ),
+                              ] else if (table.status == 'Cleaning') ...[
+                                ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF0288D1),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 6,
+                                    ),
+                                  ),
+                                  icon: const Icon(Icons.check, size: 16),
+                                  label: const Text(
+                                    'Mark Available',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  onPressed: () =>
+                                      _updateStatus(table, 'Available'),
+                                ),
+                              ] else if (table.status == 'Occupied' ||
+                                  activeBooking != null) ...[
+                                OutlinedButton(
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 4,
+                                    ),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  onPressed: () =>
+                                      _updateStatus(table, 'Available'),
+                                  child: const Text(
+                                    'Available',
+                                    style: TextStyle(fontSize: 10),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                OutlinedButton(
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 4,
+                                    ),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  onPressed: () =>
+                                      _showReservationDialog(table),
+                                  child: const Text(
+                                    'Reserve',
+                                    style: TextStyle(fontSize: 10),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF2E7D32),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  onPressed: () => context.go(
+                                    '/dashboard/waiter_order?tableId=${table.id}',
+                                  ),
+                                  child: const Text(
+                                    'Start Order',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ] else ...[
+                                ElevatedButton(
+                                  onPressed: () =>
+                                      _updateStatus(table, 'Available'),
+                                  child: const Text(
+                                    'Mark Available',
+                                    style: TextStyle(fontSize: 11),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
