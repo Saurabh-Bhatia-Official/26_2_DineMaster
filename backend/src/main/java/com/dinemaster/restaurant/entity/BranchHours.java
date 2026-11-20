@@ -6,6 +6,8 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import java.time.DayOfWeek;
 import java.time.LocalTime;
 
@@ -20,6 +22,7 @@ public class BranchHours {
     private Long branchId;
 
     @Column(nullable = false, length = 10)
+    @Enumerated(EnumType.STRING)
     private DayOfWeek weekday;
 
     @Column(name = "open_time")

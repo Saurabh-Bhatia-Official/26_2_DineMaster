@@ -59,7 +59,7 @@ class AuthControllerTest {
         mockMvc.perform(post("/api/v1/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                        {"username":"owner","password":"owner123"}
+                        {"tenantCode":"TEST-TENANT","username":"owner","password":"owner123"}
                         """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.token").isNotEmpty())
@@ -73,7 +73,18 @@ class AuthControllerTest {
         mockMvc.perform(post("/api/v1/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                        {"username":"owner","password":"wrong"}
+                        {"tenantCode":"TEST-TENANT","username":"owner","password":"wrong"}
+                        """))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("Invalid username or password"));
+    }
+
+    @Test
+    void loginRejectsCredentialsForAnotherTenant() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"tenantCode":"OTHER-TENANT","username":"owner","password":"owner123"}
                         """))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.error").value("Invalid username or password"));
@@ -83,5 +94,12 @@ class AuthControllerTest {
     void usersEndpointRejectsUnauthenticatedRequests() throws Exception {
         mockMvc.perform(get("/api/v1/users").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void jwksReportsUnavailableWhenTheConfiguredSigningKeyIsNotRsa() throws Exception {
+        mockMvc.perform(get("/api/v1/auth/jwks").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.error").value("RSA signing keys are not configured"));
     }
 }

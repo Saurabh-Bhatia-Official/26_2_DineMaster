@@ -26,7 +26,7 @@ class HealthControllerTest {
 
     @Test
     void healthEndpointIsPublicAndReturnsUp() throws Exception {
-        mockMvc.perform(get("/api/health").accept(MediaType.APPLICATION_JSON))
+        mockMvc.perform(get("/api/v1/health").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"))
                 .andExpect(jsonPath("$.service").value("dinemaster-backend"))
@@ -34,9 +34,16 @@ class HealthControllerTest {
     }
 
     @Test
-    void unknownProtectedEndpointRequiresAuthentication() throws Exception {
-        mockMvc.perform(get("/api/not-yet-implemented"))
+    void homeEndpointIsPublic() throws Exception {
+        mockMvc.perform(get("/").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.service").value("DineMaster Backend"))
+                .andExpect(jsonPath("$.status").value("UP"));
+    }
 
+    @Test
+    void unknownProtectedEndpointRequiresAuthentication() throws Exception {
+        mockMvc.perform(get("/api/v1/users").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isUnauthorized());
     }
 }

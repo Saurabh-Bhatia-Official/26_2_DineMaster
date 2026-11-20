@@ -68,6 +68,14 @@ class _OverviewScreenState extends State<OverviewScreen> {
     return response is Map ? Map<String, dynamic>.from(response) : {};
   }
 
+  Future<List<dynamic>> _revenueTrendFor(int branchId, int days) async {
+    final response = await BackendApiClient().getJson(
+      '/api/v1/dashboard/revenue-trend?branchId=$branchId&days=$days',
+    );
+    if (response is! Map || response['trend'] is! List) return const [];
+    return response['trend'] as List<dynamic>;
+  }
+
   Future<void> _loadOverviewData() async {
     if (mounted) setState(() => _isLoading = true);
     try {
@@ -82,13 +90,7 @@ class _OverviewScreenState extends State<OverviewScreen> {
           _summaryFor(branchId, today),
           OrderApiRepository().getOrders(branchId),
           TableRepository().getTables(),
-          ...List.generate(
-            _rangeDays,
-            (i) => _summaryFor(
-              branchId,
-              today.subtract(Duration(days: _rangeDays - 1 - i)),
-            ),
-          ),
+          _revenueTrendFor(branchId, _rangeDays),
         ]);
         final summary = responses.first as Map<String, dynamic>;
         final metrics = summary['metrics'] is Map
@@ -100,12 +102,11 @@ class _OverviewScreenState extends State<OverviewScreen> {
         final orders = responses[1] as List<OrderModel>;
         final tables = responses[2] as List<TableModel>;
         final activeTables = tables.where((table) => table.isActive).toList();
-        final series = responses.skip(3).map((raw) {
-          final map = raw as Map<String, dynamic>;
-          final values = map['metrics'] is Map
-              ? map['metrics'] as Map
-              : <dynamic, dynamic>{};
-          return _metric(values, 'revenue');
+        final trend = responses[3] as List<dynamic>;
+        final series = trend.map((raw) {
+          if (raw is! Map) return null;
+          final value = raw['revenue'];
+          return value is num ? value.toDouble() : double.tryParse('$value');
         }).toList();
         if (!mounted) return;
         setState(() {

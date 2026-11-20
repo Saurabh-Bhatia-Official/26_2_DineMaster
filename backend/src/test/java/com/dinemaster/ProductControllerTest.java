@@ -10,6 +10,7 @@ import com.dinemaster.restaurant.entity.Restaurant;
 import com.dinemaster.restaurant.repository.RestaurantRepository;
 import com.dinemaster.orders.entity.Order;
 import com.dinemaster.orders.entity.OrderItem;
+import com.dinemaster.orders.repository.OrderRepository;
 import com.dinemaster.orders.repository.OrderItemRepository;
 import com.dinemaster.user.entity.User;
 import com.dinemaster.tenant.Tenant;
@@ -47,10 +48,16 @@ class ProductControllerTest {
     private OrderItemRepository orderItemRepository;
 
     @Autowired
+    private OrderRepository orderRepository;
+
+    @Autowired
     private CategoryRepository categoryRepository;
 
     @Autowired
     private TenantRepository tenantRepository;
+
+    @Autowired
+    private com.dinemaster.catalog.repository.TaxSlabRepository taxSlabRepository;
 
     @Autowired
     private RestaurantRepository restaurantRepository;
@@ -63,9 +70,12 @@ class ProductControllerTest {
     @BeforeEach
     void setUp() {
         orderItemRepository.deleteAllInBatch();
+        orderRepository.deleteAllInBatch();
         productRepository.deleteAllInBatch();
         categoryRepository.deleteAllInBatch();
+        restaurantRepository.deleteAllInBatch();
         userRepository.deleteAllInBatch();
+        tenantRepository.deleteAllInBatch();
 
         Tenant tenant = tenantRepository.saveAndFlush(new Tenant("Product test tenant"));
         User owner = new User();
@@ -78,6 +88,7 @@ class ProductControllerTest {
 
         Restaurant restaurant = new Restaurant();
         restaurant.setName("Product Test Branch");
+        restaurant.setCode("PRODUCT-BRANCH");
         restaurant.setTenantId(tenant.getId());
         restaurantId = restaurantRepository.saveAndFlush(restaurant).getId();
 
@@ -91,7 +102,13 @@ class ProductControllerTest {
         product.setPrice(new BigDecimal("120.00"));
         product.setCategory("Starters");
         product.setVeg(2);
+        product.setTenantId(tenant.getId());
         product.setRestaurant(restaurant);
+        var taxSlab = new com.dinemaster.catalog.entity.TaxSlab();
+        taxSlab.setName("Test tax");
+        taxSlab.setTenantId(tenant.getId());
+        taxSlab.setRatePercent(BigDecimal.ZERO);
+        product.setTaxSlab(taxSlabRepository.saveAndFlush(taxSlab));
         productRepository.saveAndFlush(product);
     }
 
@@ -120,7 +137,24 @@ class ProductControllerTest {
                           "restaurantId": %d
                         }
                         """.formatted(restaurantId)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.fields.veg").value("is_veg must be between 0 and 3"));
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.details.veg").value("is_veg must be between 0 and 3"));
+    }
+
+    @Test
+    @WithMockUser(username = "product-owner", authorities = {"menu:view"})
+    void missingProductIsDeniedByBranchScopeInterceptor() throws Exception {
+        mockMvc.perform(get("/api/v1/products/{id}", 999999))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+    }
+
+    @Test
+    @WithMockUser(username = "product-owner")
+    void productReadRequiresMenuPermission() throws Exception {
+        mockMvc.perform(get("/api/v1/products")
+                        .param("restaurantId", restaurantId.toString()))
+                .andExpect(status().isForbidden());
     }
 }

@@ -59,6 +59,9 @@ class OrderControllerTest {
         @Autowired
         private com.dinemaster.user.repository.UserRepository userRepository;
 
+        @Autowired
+        private com.dinemaster.catalog.repository.TaxSlabRepository taxSlabRepository;
+
         private Long restaurantId;
         private Long orderId;
 
@@ -69,6 +72,7 @@ class OrderControllerTest {
                 productRepository.deleteAllInBatch();
                 restaurantRepository.deleteAllInBatch();
                 userRepository.deleteAllInBatch();
+                tenantRepository.deleteAllInBatch();
 
                 Tenant tenant = tenantRepository.saveAndFlush(new Tenant("Order test tenant"));
                 User owner = new User();
@@ -81,6 +85,7 @@ class OrderControllerTest {
 
                 Restaurant restaurant = new Restaurant();
                 restaurant.setName("Order API Test Restaurant");
+                restaurant.setCode("ORDER-BRANCH");
                 restaurant.setTenantId(tenant.getId());
                 restaurantId = restaurantRepository.saveAndFlush(restaurant).getId();
 
@@ -89,12 +94,19 @@ class OrderControllerTest {
                 product.setPrice(new BigDecimal("12.50"));
                 product.setCategory("Main Course");
                 product.setVeg(1);
+                product.setTenantId(tenant.getId());
                 product.setRestaurant(restaurant);
+                com.dinemaster.catalog.entity.TaxSlab taxSlab = new com.dinemaster.catalog.entity.TaxSlab();
+                taxSlab.setName("Test tax");
+                taxSlab.setTenantId(tenant.getId());
+                taxSlab.setRatePercent(BigDecimal.ZERO);
+                product.setTaxSlab(taxSlabRepository.saveAndFlush(taxSlab));
                 Product savedProduct = productRepository.saveAndFlush(product);
 
                 Order order = new Order();
+                order.setOrderNo("ORDER-TEST-1");
                 order.setRestaurant(restaurant);
-                order.setStatus("Pending");
+                order.setStatus("DRAFT");
                 order.setType("Dine In");
                 order.setTotalAmount(new BigDecimal("25.00"));
                 order.setDiscountAmount(BigDecimal.ZERO);
@@ -104,6 +116,7 @@ class OrderControllerTest {
                 OrderItem item = new OrderItem();
                 item.setOrder(savedOrder);
                 item.setProduct(savedProduct);
+                item.setProductNameSnapshot(savedProduct.getName());
                 item.setQuantity(2);
                 item.setPrice(savedProduct.getPrice());
                 item.setStatus("Pending");
@@ -152,26 +165,16 @@ class OrderControllerTest {
 
         @Test
         @WithMockUser(username = "order-owner", authorities = {"order:park", "order:update", "payment:record", "order:cancel"})
-        void orderLifecycleEndpointsPersistStatusAndPayment() throws Exception {
+        void holdingDraftOrderWorksAndPrematurePaymentConflicts() throws Exception {
                 mockMvc.perform(post("/api/v1/orders/{id}/hold", orderId))
                                 .andExpect(status().isOk())
-                                .andExpect(jsonPath("$.status").value("Held"));
-
-                mockMvc.perform(patch("/api/v1/orders/{id}/status", orderId)
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content("{\"status\":\"Preparing\"}"))
-                                .andExpect(status().isOk())
-                                .andExpect(jsonPath("$.status").value("Preparing"));
+                                .andExpect(jsonPath("$.status").value("DRAFT"))
+                                .andExpect(jsonPath("$.parked").value(true));
 
                 mockMvc.perform(post("/api/v1/orders/{id}/payment", orderId)
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content("{\"paymentMethod\":\"UPI\"}"))
-                                .andExpect(status().isOk())
-                                .andExpect(jsonPath("$.status").value("Completed"))
-                                .andExpect(jsonPath("$.paymentStatus").value("Paid"))
-                                .andExpect(jsonPath("$.paymentMethod").value("UPI"));
-
-                mockMvc.perform(post("/api/v1/orders/{id}/cancel", orderId))
-                                .andExpect(status().isBadRequest());
+                                .andExpect(status().isConflict())
+                                .andExpect(jsonPath("$.code").value("CONFLICT"));
         }
 }

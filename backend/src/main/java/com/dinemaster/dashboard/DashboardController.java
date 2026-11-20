@@ -9,6 +9,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -86,6 +87,30 @@ public class DashboardController {
                 "asOf", OffsetDateTime.now(),
                 "metrics", metrics,
                 "unavailableMetrics", unavailable));
+    }
+
+    @GetMapping("/revenue-trend")
+    @PreAuthorize("hasAuthority('dashboard:view')")
+    public ResponseEntity<?> revenueTrend(@RequestParam Long branchId, @RequestParam(required = false) LocalDate endDate,
+            @RequestParam(defaultValue = "7") int days, Authentication authentication) {
+        User user = branchScope.requireUser(authentication);
+        branchScope.requireBranch(authentication, branchId);
+        Restaurant branch = branches.findById(branchId).orElse(null);
+        if (branch == null || !branch.isActive()) return ResponseEntity.notFound().build();
+        if (!canSeeRevenue(user, authentication)) return ResponseEntity.status(403).build();
+        if (days < 1 || days > 31) return ResponseEntity.badRequest().body(Map.of("message", "days must be between 1 and 31"));
+
+        ZoneId zone = ZoneId.of(branch.getTimezone());
+        LocalDate lastDay = endDate == null ? LocalDate.now(zone) : endDate;
+        LocalDate firstDay = lastDay.minusDays(days - 1L);
+        var rows = dashboard.revenueTrend(branchId, firstDay, lastDay, zone.getId());
+        Map<LocalDate, BigDecimal> byDate = new java.util.HashMap<>();
+        rows.forEach(row -> byDate.put(row.date(), row.revenue()));
+        List<Map<String, Object>> series = new ArrayList<>();
+        for (LocalDate day = firstDay; !day.isAfter(lastDay); day = day.plusDays(1)) {
+            series.add(Map.of("date", day, "revenue", byDate.getOrDefault(day, BigDecimal.ZERO)));
+        }
+        return ResponseEntity.ok(Map.of("branchId", branchId, "trend", series));
     }
 
     private boolean canSeeRevenue(User user, Authentication authentication) {

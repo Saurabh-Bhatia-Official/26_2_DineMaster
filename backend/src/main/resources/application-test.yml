@@ -24,3 +24,7 @@ cloudinary:
   cloud-name: ""
   api-key: ""
   api-secret: ""
+
+dinemaster:
+  recipe-deduction:
+    enabled: false
