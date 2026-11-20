@@ -17,6 +17,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -69,6 +70,9 @@ class RestaurantControllerTest {
                 .andExpect(jsonPath("$.tenantId").value(tenantId));
 
         Restaurant branch = branches.findAllByTenantIdAndDeletedAtIsNullOrderById(tenantId).getFirst();
+        mockMvc.perform(get("/api/v1/branches/{id}", branch.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Main branch"));
         mockMvc.perform(post("/api/v1/branches")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(branchJson("b-1", "Duplicate", "Asia/Kolkata")))
@@ -85,6 +89,10 @@ class RestaurantControllerTest {
                         .header("If-Match", branch.getVersion())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(branchJson("B-1", "Updated branch", "Asia/Kolkata")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Updated branch"));
+
+        mockMvc.perform(get("/api/v1/branches/{id}", branch.getId()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Updated branch"));
 
@@ -155,6 +163,26 @@ class RestaurantControllerTest {
                                 """))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.error").value("Weekdays must be unique"));
+
+        mockMvc.perform(put("/api/v1/branches/{id}/hours", branch.getId())
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content("""
+                                                [
+                                                  {"weekday":"MONDAY","openTime":"10:00:00","closeTime":"18:00:00","closed":false},
+                                                  {"weekday":"TUESDAY","openTime":"09:00:00","closeTime":"18:00:00","closed":false},
+                                                  {"weekday":"WEDNESDAY","openTime":"09:00:00","closeTime":"18:00:00","closed":false},
+                                                  {"weekday":"THURSDAY","openTime":"09:00:00","closeTime":"18:00:00","closed":false},
+                                                  {"weekday":"FRIDAY","openTime":"09:00:00","closeTime":"18:00:00","closed":false},
+                                                  {"weekday":"SATURDAY","openTime":null,"closeTime":null,"closed":true},
+                                                  {"weekday":"SUNDAY","openTime":null,"closeTime":null,"closed":true}
+                                                ]
+                                                """))
+                                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/branches/{id}/hours", branch.getId()))
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$[?(@.weekday == 'MONDAY')].openTime")
+                                        .value(contains("10:00:00")));
     }
 
     private static String branchJson(String code, String name, String timezone) {

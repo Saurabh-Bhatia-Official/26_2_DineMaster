@@ -7,9 +7,11 @@ import com.dinemaster.catalog.entity.Product;
 import com.dinemaster.catalog.repository.BranchProductRepository;
 import com.dinemaster.catalog.repository.CategoryRepository;
 import com.dinemaster.catalog.repository.ProductRepository;
+import com.dinemaster.cache.CacheInvalidationService;
+import com.dinemaster.cache.CatalogCacheService;
+import com.dinemaster.catalog.dto.MenuCacheResponse;
 import com.dinemaster.restaurant.repository.RestaurantRepository;
 import com.dinemaster.security.BranchScopeService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
@@ -33,13 +35,17 @@ public class MenuController {
     private final ProductRepository products;
     private final RestaurantRepository branches;
     private final BranchScopeService branchScope;
-    private final ObjectMapper mapper;
+    private final CatalogCacheService cachedReads;
+    private final CacheInvalidationService cacheInvalidation;
+    private final com.fasterxml.jackson.databind.ObjectMapper mapper;
     private final JdbcTemplate jdbc;
     public MenuController(BranchProductRepository branchProducts, CategoryRepository categories,
             ProductRepository products, RestaurantRepository branches, BranchScopeService branchScope,
-            ObjectMapper mapper, JdbcTemplate jdbc) {
+            com.fasterxml.jackson.databind.ObjectMapper mapper, JdbcTemplate jdbc,
+            CatalogCacheService cachedReads, CacheInvalidationService cacheInvalidation) {
         this.branchProducts = branchProducts; this.categories = categories; this.products = products;
         this.branches = branches; this.branchScope = branchScope; this.mapper = mapper; this.jdbc = jdbc;
+        this.cachedReads = cachedReads; this.cacheInvalidation = cacheInvalidation;
     }
 
     public record Availability(Long productId, Boolean isAvailable, BigDecimal priceOverride) { }
@@ -53,23 +59,8 @@ public class MenuController {
         branchScope.requireBranch(authentication, branchId);
         var branch = branches.findById(branchId).orElse(null);
         if (branch == null) return ResponseEntity.notFound().build();
-        List<Map<String, Object>> categoryRows = new ArrayList<>();
-        for (Category category : categories.findAllByTenantIdAndDeletedAtIsNullOrderBySortOrderAscIdAsc(branch.getTenantId())) {
-            if (!category.isActive()) continue;
-            List<Map<String, Object>> productRows = new ArrayList<>();
-            for (Product product : products.findByRestaurant_IdAndCategoryRef_IdAndAvailableTrue(branchId, category.getId())) {
-                BranchProduct config = branchProducts.findByBranchIdAndProductId(branchId, product.getId()).orElse(null);
-                if (config != null && !config.isAvailable()) continue;
-                Map<String, Object> row = new LinkedHashMap<>();
-                row.put("id", product.getId()); row.put("name", product.getName());
-                row.put("description", product.getDescription());
-                row.put("price", config != null && config.getPriceOverride() != null ? config.getPriceOverride() : product.getPrice());
-                row.put("taxRate", product.getGstPercentage()); row.put("imagePath", product.getImagePath());
-                productRows.add(row);
-            }
-            categoryRows.add(Map.of("id", category.getId(), "name", category.getName(),
-                    "sortOrder", category.getSortOrder(), "products", productRows));
-        }
+        MenuCacheResponse catalog = cachedReads.branchMenu(branch.getTenantId(), branchId);
+        List<Map<String, Object>> categoryRows = menuCategoryRows(catalog);
         Map<String, Object> versionInput = Map.of("branchId", branchId, "categories", categoryRows);
         String contentHash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                 .digest(mapper.writeValueAsString(versionInput).getBytes(StandardCharsets.UTF_8)));
@@ -85,15 +76,13 @@ public class MenuController {
     @PreAuthorize("hasAuthority('menu:view')")
     public ResponseEntity<?> availability(@PathVariable Long branchId, Authentication authentication) {
         branchScope.requireBranch(authentication, branchId);
-        Map<Long, BranchProduct> configured = new HashMap<>();
-        branchProducts.findByBranchId(branchId).forEach(value -> configured.put(value.getProductId(), value));
-        return ResponseEntity.ok(products.findByRestaurant_Id(branchId).stream().map(product -> {
-            BranchProduct value = configured.get(product.getId());
+        var branch = branches.findById(branchId).orElse(null);
+        if (branch == null) return ResponseEntity.notFound().build();
+        return ResponseEntity.ok(cachedReads.branchAvailability(branch.getTenantId(), branchId).items().stream().map(item -> {
             Map<String, Object> row = new LinkedHashMap<>();
-            row.put("productId", product.getId()); row.put("name", product.getName());
-            row.put("isAvailable", value == null ? product.isAvailable() : value.isAvailable());
-            row.put("price", value != null && value.getPriceOverride() != null ? value.getPriceOverride() : product.getPrice());
-            row.put("priceOverride", value == null ? null : value.getPriceOverride());
+            row.put("productId", item.productId()); row.put("name", item.name());
+            row.put("isAvailable", item.isAvailable()); row.put("price", item.price());
+            row.put("priceOverride", item.priceOverride());
             return row;
         }).toList());
     }
@@ -119,6 +108,7 @@ public class MenuController {
             BigDecimal oldPrice = config.getPriceOverride() == null ? product.getPrice() : config.getPriceOverride();
             config.setAvailable(item.isAvailable()); config.setPriceOverride(item.priceOverride());
             BranchProduct savedConfig = branchProducts.save(config); saved.add(savedConfig);
+            cacheInvalidation.invalidateBranchCatalog(product.getTenantId(), branchId);
             BigDecimal newPrice = item.priceOverride() == null ? product.getPrice() : item.priceOverride();
             if (oldPrice.compareTo(newPrice) != 0) jdbc.update("""
                     INSERT INTO menu_price_audit(branch_id, product_id, old_price, new_price, changed_by)
@@ -126,5 +116,19 @@ public class MenuController {
                     """, branchId, item.productId(), oldPrice, newPrice, authentication.getName());
         }
         return ResponseEntity.ok(saved);
+    }
+
+    private static List<Map<String, Object>> menuCategoryRows(MenuCacheResponse catalog) {
+        return catalog.categories().stream().map(category -> {
+            List<Map<String, Object>> products = category.products().stream().map(product -> {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("id", product.id()); row.put("name", product.name());
+                row.put("description", product.description()); row.put("price", product.price());
+                row.put("taxRate", product.taxRate()); row.put("imagePath", product.imagePath());
+                return row;
+            }).toList();
+            return Map.<String, Object>of("id", category.id(), "name", category.name(),
+                    "sortOrder", category.sortOrder(), "products", products);
+        }).toList();
     }
 }

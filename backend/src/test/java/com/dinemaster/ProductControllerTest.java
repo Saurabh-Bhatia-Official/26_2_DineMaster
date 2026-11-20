@@ -2,6 +2,7 @@ package com.dinemaster;
 
 
 import com.dinemaster.catalog.controller.ProductController;
+import com.dinemaster.cache.CatalogCacheService;
 import com.dinemaster.catalog.entity.Category;
 import com.dinemaster.catalog.entity.Product;
 import com.dinemaster.catalog.repository.CategoryRepository;
@@ -28,6 +29,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -64,8 +66,12 @@ class ProductControllerTest {
 
     @Autowired
     private com.dinemaster.user.repository.UserRepository userRepository;
+    @Autowired
+    private CatalogCacheService cachedReads;
 
     private Long restaurantId;
+    private Long productId;
+    private Long tenantId;
 
     @BeforeEach
     void setUp() {
@@ -78,6 +84,7 @@ class ProductControllerTest {
         tenantRepository.deleteAllInBatch();
 
         Tenant tenant = tenantRepository.saveAndFlush(new Tenant("Product test tenant"));
+        tenantId = tenant.getId();
         User owner = new User();
         owner.setName("Product Test Owner");
         owner.setUsername("product-owner");
@@ -95,7 +102,7 @@ class ProductControllerTest {
         Category category = new Category();
         category.setName("Starters");
         category.setTenantId(tenant.getId());
-        categoryRepository.saveAndFlush(category);
+        category = categoryRepository.saveAndFlush(category);
 
         Product product = new Product();
         product.setName("Egg Roll");
@@ -104,12 +111,13 @@ class ProductControllerTest {
         product.setVeg(2);
         product.setTenantId(tenant.getId());
         product.setRestaurant(restaurant);
+        product.setCategoryRef(category);
         var taxSlab = new com.dinemaster.catalog.entity.TaxSlab();
         taxSlab.setName("Test tax");
         taxSlab.setTenantId(tenant.getId());
         taxSlab.setRatePercent(BigDecimal.ZERO);
         product.setTaxSlab(taxSlabRepository.saveAndFlush(taxSlab));
-        productRepository.saveAndFlush(product);
+        productId = productRepository.saveAndFlush(product).getId();
     }
 
     @Test
@@ -156,5 +164,44 @@ class ProductControllerTest {
         mockMvc.perform(get("/api/v1/products")
                         .param("restaurantId", restaurantId.toString()))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(username = "product-owner", authorities = {"menu:view", "menu:manage"})
+    void productUpdateInvalidatesCachedBranchMenu() throws Exception {
+        mockMvc.perform(get("/api/v1/menu").param("branchId", restaurantId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.categories[0].products[0].name").value("Egg Roll"))
+                .andExpect(jsonPath("$.categories[0].products[0].price").value(120.00));
+        mockMvc.perform(get("/api/v1/branches/{branchId}/availability", restaurantId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].name").value("Egg Roll"));
+        assertThat(cachedReads.guestMenu(tenantId, restaurantId).items().getFirst().name())
+                .isEqualTo("Egg Roll");
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                        "/api/v1/products/{id}", productId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Egg Roll Updated",
+                                  "price": 120.00,
+                                  "category": "Starters",
+                                  "is_veg": 2,
+                                  "restaurantId": %d,
+                                  "gstPercentage": 0.00
+                                }
+                                """.formatted(restaurantId)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/menu").param("branchId", restaurantId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.categories[0].products[0].name").value("Egg Roll Updated"))
+                .andExpect(jsonPath("$.categories[0].products[0].price").value(120.00));
+        mockMvc.perform(get("/api/v1/branches/{branchId}/availability", restaurantId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].name").value("Egg Roll Updated"));
+        assertThat(cachedReads.guestMenu(tenantId, restaurantId).items().getFirst().name())
+                .isEqualTo("Egg Roll Updated");
     }
 }

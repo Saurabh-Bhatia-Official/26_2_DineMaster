@@ -73,6 +73,13 @@ class CategoryControllerTest {
                 .andExpect(jsonPath("$.tenantId").value(tenantId));
 
         Category category = categories.findFirstByNameIgnoreCaseAndTenantId("desserts", tenantId).orElseThrow();
+        mockMvc.perform(get("/api/v1/categories"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].name").value("Desserts"));
+        mockMvc.perform(get("/api/v1/categories/{id}", category.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Desserts"));
+
         mockMvc.perform(post("/api/v1/categories")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -86,6 +93,9 @@ class CategoryControllerTest {
                         .content("""
                                 {"name":"Sweets","sortOrder":4}
                                 """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Sweets"));
+        mockMvc.perform(get("/api/v1/categories/{id}", category.getId()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Sweets"));
 

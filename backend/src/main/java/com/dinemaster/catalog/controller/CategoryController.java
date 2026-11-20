@@ -4,9 +4,12 @@ package com.dinemaster.catalog.controller;
 
 
 import com.dinemaster.catalog.dto.CategoryRequest;
+import com.dinemaster.catalog.dto.CategoryResponse;
 import com.dinemaster.catalog.entity.Category;
 import com.dinemaster.catalog.repository.CategoryRepository;
 import com.dinemaster.catalog.repository.ProductRepository;
+import com.dinemaster.cache.CacheInvalidationService;
+import com.dinemaster.cache.CatalogCacheService;
 
 import jakarta.validation.Valid;
 
@@ -32,28 +35,34 @@ public class CategoryController {
     private final CategoryRepository categoryRepository;
     private final BranchScopeService branchScope;
     private final ProductRepository products;
+    private final CatalogCacheService cachedReads;
+    private final CacheInvalidationService cacheInvalidation;
 
-    public CategoryController(CategoryRepository categoryRepository, BranchScopeService branchScope, ProductRepository products) {
+    public CategoryController(CategoryRepository categoryRepository, BranchScopeService branchScope,
+            ProductRepository products, CatalogCacheService cachedReads,
+            CacheInvalidationService cacheInvalidation) {
         this.categoryRepository = categoryRepository;
         this.branchScope = branchScope;
         this.products = products;
+        this.cachedReads = cachedReads;
+        this.cacheInvalidation = cacheInvalidation;
     }
 
     @GetMapping
     @PreAuthorize("hasAuthority('menu:view')")
-    public ResponseEntity<List<Category>> getAllCategories(Authentication authentication) {
+    public ResponseEntity<List<CategoryResponse>> getAllCategories(Authentication authentication) {
         User user = branchScope.requireUser(authentication);
-        return ResponseEntity.ok(categoryRepository.findAllByTenantIdAndDeletedAtIsNullOrderBySortOrderAscIdAsc(user.getTenantId()));
+        return ResponseEntity.ok(cachedReads.categoryList(user.getTenantId()).categories());
     }
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAuthority('menu:view')")
     public ResponseEntity<?> getCategoryById(@PathVariable Long id, Authentication authentication) {
         User user = branchScope.requireUser(authentication);
-        return categoryRepository.findByIdAndTenantId(id, user.getTenantId()).filter(category -> category.getDeletedAt() == null)
-                .<ResponseEntity<?>>map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(Map.of("error", "Category not found")));
+        CategoryResponse category = cachedReads.category(user.getTenantId(), id);
+        return category == null
+                ? ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Category not found"))
+                : ResponseEntity.ok(category);
     }
 
     @PostMapping
@@ -77,6 +86,7 @@ public class CategoryController {
         if (request.getActive() != null) category.setActive(request.getActive());
 
         Category savedCategory = categoryRepository.save(category);
+        cacheInvalidation.invalidateTenantCatalog(user.getTenantId(), savedCategory.getId());
 
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(savedCategory);
@@ -103,7 +113,9 @@ public class CategoryController {
                     category.setName(name);
                     if (request.getSortOrder() != null) category.setSortOrder(request.getSortOrder());
                     if (request.getActive() != null) category.setActive(request.getActive());
-                    return ResponseEntity.ok(categoryRepository.save(category));
+                    Category saved = categoryRepository.save(category);
+                    cacheInvalidation.invalidateTenantCatalog(user.getTenantId(), saved.getId());
+                    return ResponseEntity.ok(saved);
                 })
                 .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
                         .body(Map.of("error", "Category not found")));
@@ -120,9 +132,11 @@ public class CategoryController {
                         category.setActive(false);
                         category.setDeletedAt(OffsetDateTime.now());
                         categoryRepository.save(category);
+                        cacheInvalidation.invalidateTenantCatalog(user.getTenantId(), category.getId());
                         return ResponseEntity.ok(Map.of("status", "ARCHIVED", "id", category.getId()));
                     }
                     categoryRepository.delete(category);
+                    cacheInvalidation.invalidateTenantCatalog(user.getTenantId(), category.getId());
                     return ResponseEntity.noContent().build();
                 })
                 .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
@@ -150,6 +164,9 @@ public class CategoryController {
             categories.add(category);
         }
         for (int i = 0; i < request.items().size(); i++) categories.get(i).setSortOrder(request.items().get(i).sortOrder());
-        return ResponseEntity.ok(categoryRepository.saveAll(categories));
+        List<Category> saved = categoryRepository.saveAll(categories);
+        cacheInvalidation.invalidateTenantCatalog(user.getTenantId(),
+                saved.stream().map(Category::getId).toList());
+        return ResponseEntity.ok(saved);
     }
 }

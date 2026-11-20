@@ -27,6 +27,10 @@ class GuestControllerTest {
                 .andExpect(status().isGone())
                 .andExpect(jsonPath("$.code").value("RESOURCE_EXPIRED"));
 
+        mockMvc.perform(get("/guest/menu").param("t", "short-token"))
+                .andExpect(status().isGone())
+                .andExpect(jsonPath("$.code").value("RESOURCE_EXPIRED"));
+
         mockMvc.perform(get("/guest/orders/{id}", 1).param("t", "short-token"))
                 .andExpect(status().isGone())
                 .andExpect(jsonPath("$.code").value("RESOURCE_EXPIRED"));

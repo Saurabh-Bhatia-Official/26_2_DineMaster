@@ -11,6 +11,7 @@ import com.dinemaster.catalog.repository.ProductRepository;
 import com.dinemaster.catalog.repository.TaxSlabRepository;
 import com.dinemaster.catalog.service.ImageStorageService;
 import com.dinemaster.catalog.service.ProductService;
+import com.dinemaster.cache.CacheInvalidationService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.dinemaster.restaurant.entity.Restaurant;
@@ -46,6 +47,7 @@ public class ProductController {
     private final JdbcTemplate jdbc;
     private final TaxSlabRepository taxSlabs;
     private final ProductService productService;
+    private final CacheInvalidationService cacheInvalidation;
 
     public ProductController(
             ProductRepository productRepository,
@@ -56,7 +58,8 @@ public class ProductController {
             ObjectMapper objectMapper,
             JdbcTemplate jdbc,
             TaxSlabRepository taxSlabs,
-            ProductService productService) {
+            ProductService productService,
+            CacheInvalidationService cacheInvalidation) {
         this.productRepository = productRepository;
         this.categoryRepository = categoryRepository;
         this.restaurantRepository = restaurantRepository;
@@ -66,6 +69,7 @@ public class ProductController {
         this.jdbc = jdbc;
         this.taxSlabs = taxSlabs;
         this.productService = productService;
+        this.cacheInvalidation = cacheInvalidation;
     }
 
     // GET: Fetch available products
@@ -175,7 +179,9 @@ public class ProductController {
                     branchScope.requireBranch(authentication, product.getRestaurantId());
                     ResponseEntity<?> uploadError = uploadProductImage(product, image);
                     if (uploadError != null) return uploadError;
-                    return ResponseEntity.ok(productRepository.save(product));
+                    Product saved = productRepository.save(product);
+                    cacheInvalidation.invalidateBranchCatalog(saved.getTenantId(), saved.getRestaurantId());
+                    return ResponseEntity.ok(saved);
                 })
                 .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
                         .body(Map.of("error", "Product not found")));
@@ -225,6 +231,7 @@ public class ProductController {
         }
 
         Product savedProduct = productRepository.save(product);
+        cacheInvalidation.invalidateBranchCatalog(savedProduct.getTenantId(), savedProduct.getRestaurantId());
 
         return ResponseEntity.status(HttpStatus.CREATED).body(savedProduct);
     }
@@ -277,6 +284,7 @@ public class ProductController {
                         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "SKU already exists for this tenant"));
                     }
 
+                    Long previousBranchId = existingProduct.getRestaurantId();
                     BigDecimal oldPrice = existingProduct.getPrice();
                     copyProductFields(request, existingProduct);
                     existingProduct.setTenantId(actor.getTenantId());
@@ -296,6 +304,8 @@ public class ProductController {
                     }
 
                     Product saved = productRepository.save(existingProduct);
+                    cacheInvalidation.invalidateBranchCatalog(saved.getTenantId(), previousBranchId);
+                    cacheInvalidation.invalidateBranchCatalog(saved.getTenantId(), saved.getRestaurantId());
                     if (oldPrice != null && oldPrice.compareTo(saved.getPrice()) != 0 && branchId != null) {
                         jdbc.update("""
                                 INSERT INTO menu_price_audit(branch_id, product_id, old_price, new_price, changed_by)

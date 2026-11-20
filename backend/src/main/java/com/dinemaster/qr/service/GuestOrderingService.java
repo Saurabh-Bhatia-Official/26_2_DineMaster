@@ -3,6 +3,7 @@ package com.dinemaster.qr.service;
 import com.dinemaster.catalog.entity.Product;
 import com.dinemaster.catalog.repository.ProductRepository;
 import com.dinemaster.catalog.repository.BranchProductRepository;
+import com.dinemaster.cache.CatalogCacheService;
 import com.dinemaster.orders.entity.Order;
 import com.dinemaster.orders.entity.OrderItem;
 import com.dinemaster.orders.repository.OrderItemRepository;
@@ -38,13 +39,15 @@ public class GuestOrderingService {
     private final QrOrderIdempotencyRepository idempotencies;
     private final GuestServiceRequestRepository serviceRequests;
     private final BranchProductRepository branchProducts;
+    private final CatalogCacheService cachedReads;
     private final OrderNumberService orderNumbers;
     private final TotalsCalculator totals;
 
     public GuestOrderingService(TableSessionService tokenService, TableSessionRepository sessions,
             ProductRepository products, OrderRepository orders, OrderItemRepository orderItems,
             QrOrderIdempotencyRepository idempotencies, GuestServiceRequestRepository serviceRequests,
-            BranchProductRepository branchProducts, OrderNumberService orderNumbers, TotalsCalculator totals) {
+            BranchProductRepository branchProducts, OrderNumberService orderNumbers, TotalsCalculator totals,
+            CatalogCacheService cachedReads) {
         this.tokenService = tokenService;
         this.sessions = sessions;
         this.products = products;
@@ -53,6 +56,7 @@ public class GuestOrderingService {
         this.idempotencies = idempotencies;
         this.serviceRequests = serviceRequests;
         this.branchProducts = branchProducts;
+        this.cachedReads = cachedReads;
         this.orderNumbers = orderNumbers;
         this.totals = totals;
     }
@@ -61,16 +65,11 @@ public class GuestOrderingService {
     public GuestMenuResponse menu(String token) {
         TableSession session = tokenService.resolve(token);
         Long branchId = session.getBranch().getId();
-        List<GuestMenuResponse.Item> items = products.findByRestaurant_IdAndAvailableTrue(branchId).stream()
-                .filter(p -> p.getDeletedAt() == null)
-                .filter(p -> branchProducts.findByBranchIdAndProductId(branchId, p.getId())
-                        .map(com.dinemaster.catalog.entity.BranchProduct::isAvailable).orElse(true))
-                .map(p -> {
-                    var config = branchProducts.findByBranchIdAndProductId(branchId, p.getId()).orElse(null);
-                    BigDecimal price = config != null && config.getPriceOverride() != null ? config.getPriceOverride() : p.getPrice();
-                    return new GuestMenuResponse.Item(p.getId(), p.getName(), p.getDescription(),
-                            p.getCategory(), price, p.getImagePath(), p.getVeg());
-                }).toList();
+        List<GuestMenuResponse.Item> items = cachedReads
+                .guestMenu(session.getBranch().getTenantId(), branchId).items().stream()
+                .map(item -> new GuestMenuResponse.Item(item.id(), item.name(), item.description(),
+                        item.category(), item.price(), item.imagePath(), item.veg()))
+                .toList();
         return new GuestMenuResponse(session.getTable().getTableNumber(), items);
     }
 

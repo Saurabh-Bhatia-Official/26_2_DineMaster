@@ -2,6 +2,7 @@ package com.dinemaster.catalog.service;
 
 import com.dinemaster.catalog.entity.Product;
 import com.dinemaster.catalog.repository.ProductRepository;
+import com.dinemaster.cache.CacheInvalidationService;
 import com.dinemaster.orders.repository.OrderItemRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,6 +23,9 @@ class ProductServiceTest {
 
     @Mock
     private OrderItemRepository orderItems;
+
+    @Mock
+    private CacheInvalidationService cacheInvalidation;
 
     @InjectMocks
     private ProductService service;

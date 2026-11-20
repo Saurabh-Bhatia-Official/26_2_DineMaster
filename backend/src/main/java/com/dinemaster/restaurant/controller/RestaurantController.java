@@ -2,6 +2,8 @@ package com.dinemaster.restaurant.controller;
 
 import com.dinemaster.restaurant.dto.BranchRequest;
 import com.dinemaster.restaurant.dto.BranchHoursRequest;
+import com.dinemaster.cache.CacheInvalidationService;
+import com.dinemaster.cache.CatalogCacheService;
 import com.dinemaster.restaurant.entity.BranchHours;
 import com.dinemaster.restaurant.entity.Restaurant;
 import com.dinemaster.restaurant.repository.BranchHoursRepository;
@@ -30,13 +32,18 @@ public class RestaurantController {
     private final BranchScopeService branchScope;
     private final UserBranchRepository userBranches;
     private final BranchHoursRepository hours;
+    private final CatalogCacheService cachedReads;
+    private final CacheInvalidationService cacheInvalidation;
 
     public RestaurantController(RestaurantRepository branches, BranchScopeService branchScope,
-            UserBranchRepository userBranches, BranchHoursRepository hours) {
+            UserBranchRepository userBranches, BranchHoursRepository hours,
+            CatalogCacheService cachedReads, CacheInvalidationService cacheInvalidation) {
         this.branches = branches;
         this.branchScope = branchScope;
         this.userBranches = userBranches;
         this.hours = hours;
+        this.cachedReads = cachedReads;
+        this.cacheInvalidation = cacheInvalidation;
     }
 
     @GetMapping
@@ -57,7 +64,7 @@ public class RestaurantController {
         User user = branchScope.requireUser(authentication);
         Restaurant branch = findAccessible(id, user);
         if (branch == null) return ResponseEntity.notFound().build();
-        return ResponseEntity.ok(branch);
+        return ResponseEntity.ok(cachedReads.branch(user.getTenantId(), id));
     }
 
     @PostMapping
@@ -96,7 +103,9 @@ public class RestaurantController {
             return error(HttpStatus.CONFLICT, "Branch code already exists in this tenant");
         }
         apply(branch, request);
-        return ResponseEntity.ok(branches.save(branch));
+        Restaurant saved = branches.save(branch);
+        cacheInvalidation.invalidateBranchDetails(saved.getTenantId(), saved.getId());
+        return ResponseEntity.ok(saved);
     }
 
     @PostMapping("/{id}/suspend")
@@ -106,7 +115,8 @@ public class RestaurantController {
         Restaurant branch = findAccessible(id, user);
         if (branch == null) return ResponseEntity.notFound().build();
         branch.setActive(false);
-        branches.save(branch);
+        Restaurant saved = branches.save(branch);
+        cacheInvalidation.invalidateBranchDetails(saved.getTenantId(), saved.getId());
         return ResponseEntity.noContent().build();
     }
 
@@ -115,7 +125,7 @@ public class RestaurantController {
     public ResponseEntity<?> getHours(@PathVariable Long id, Authentication authentication) {
         User user = branchScope.requireUser(authentication);
         if (findAccessible(id, user) == null) return ResponseEntity.notFound().build();
-        return ResponseEntity.ok(hours.findAllByBranchIdOrderByWeekday(id));
+        return ResponseEntity.ok(cachedReads.hours(user.getTenantId(), id).hours());
     }
 
     @PutMapping("/{id}/hours")
@@ -146,6 +156,7 @@ public class RestaurantController {
         hours.deleteAllByBranchId(id);
         hours.saveAll(requested.stream().map(day -> new BranchHours(
                 id, day.weekday(), day.openTime(), day.closeTime(), day.closed())).toList());
+        cacheInvalidation.invalidateBranchHours(branch.getTenantId(), id);
         return ResponseEntity.ok(hours.findAllByBranchIdOrderByWeekday(id));
     }
 
