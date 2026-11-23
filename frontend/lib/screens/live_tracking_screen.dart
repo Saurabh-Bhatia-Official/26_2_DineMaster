@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:dine_master/core/theme/app_colors.dart';
-import '../core/database/database_helper.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
-import '../services/sync_service.dart';
-import '../models/table_model.dart';
-import '../repositories/table_repository.dart';
+import '../services/backend_api_client.dart';
+import '../core/api/api_mode.dart';
 
 class LiveTrackingScreen extends StatefulWidget {
   const LiveTrackingScreen({super.key});
@@ -15,11 +13,14 @@ class LiveTrackingScreen extends StatefulWidget {
 }
 
 class _LiveTrackingScreenState extends State<LiveTrackingScreen> with SingleTickerProviderStateMixin {
-  final DatabaseHelper _dbHelper = DatabaseHelper.instance;
+  final BackendApiClient _api = const BackendApiClient();
   late TabController _tabController;
   bool _isLoading = true;
+  bool _isRefreshing = false;
+  bool _isLoadingAuditLogs = false;
+  bool _hasLoaded = false;
+  String? _loadError;
   Timer? _pollingTimer;
-  StreamSubscription? _syncSubscription;
 
   // Real-time data lists
   List<Map<String, dynamic>> _liveOrders = [];
@@ -37,17 +38,11 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> with SingleTick
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(_handleTabChange);
     _loadAllTrackingData();
     
-    // Live WebSocket synchronization
-    _syncSubscription = SyncService.instance.syncEvents.listen((event) {
-      if (mounted) {
-        _loadAllTrackingData(silent: true);
-      }
-    });
-
-    // Safety fallback poll every 10 seconds
-    _pollingTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+    // Refresh at a lower rate; never overlap a slow API refresh.
+    _pollingTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
       _loadAllTrackingData(silent: true);
     });
   }
@@ -55,108 +50,79 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> with SingleTick
   @override
   void dispose() {
     _pollingTimer?.cancel();
-    _syncSubscription?.cancel();
+    _tabController.removeListener(_handleTabChange);
     _tabController.dispose();
     super.dispose();
   }
 
+  void _handleTabChange() {
+    if (!_tabController.indexIsChanging && _tabController.index == 1) {
+      _loadAuditLogs();
+    }
+  }
+
   Future<void> _loadAllTrackingData({bool silent = false}) async {
+    if (_isRefreshing) return;
+    _isRefreshing = true;
     if (!silent) {
       setState(() => _isLoading = true);
     }
     try {
-      final db = await _dbHelper.database;
-      final restaurantId = DatabaseHelper.currentRestaurantId;
-
-      // 1. Fetch live orders (not completed or fully served in past days)
-      final List<Map<String, dynamic>> orderMaps = await db.query(
-        'orders',
-        where: 'restaurant_id = ?',
-        whereArgs: [restaurantId],
-        orderBy: 'order_time DESC',
+      final restaurantId = await _selectedRestaurantId();
+      final orders = await _getList('/api/v1/orders?restaurantId=$restaurantId');
+      final tickets = await _getList(
+        '/api/v1/kitchen-tickets?restaurantId=$restaurantId&sort=oldest',
       );
-
-      List<Map<String, dynamic>> liveOrders = [];
-      for (var o in orderMaps) {
-        final orderId = o['id'] as int;
-
-        // Fetch active KOTs status & chef
-        final List<Map<String, dynamic>> kots = await db.query(
-          'kot',
-          columns: ['id', 'status', 'estimated_time', 'chef_name', 'created_at', 'delay_reason'],
-          where: 'order_id = ?',
-          whereArgs: [orderId],
-        );
-
-        String chefName = 'Unassigned';
-        int estTime = 15;
-        String? delayReason;
-        if (kots.isNotEmpty) {
-          chefName = kots.first['chef_name'] as String? ?? 'Unassigned';
-          estTime = kots.first['estimated_time'] as int? ?? 15;
-          delayReason = kots.first['delay_reason'] as String?;
-        }
-
-        // Get table details if Dine-in
-        String tableNumber = 'Takeaway';
-        final tableId = o['table_id'] as int?;
-        if (tableId != null) {
-          final List<Map<String, dynamic>> tables = await db.query(
-            'tables',
-            where: 'id = ?',
-            whereArgs: [tableId],
-          );
-          if (tables.isNotEmpty) {
-            final tableModel = TableModel.fromMap(tables.first);
-            tableNumber = tableModel.displayName;
-          }
-        }
-
-        liveOrders.add({
-          'id': orderId,
-          'customer_name': o['customer_name'] ?? 'Walk-in Guest',
-          'customer_phone': o['customer_phone'] ?? 'N/A',
-          'total_amount': o['total_amount'],
-          'status': o['status'] ?? 'Received',
-          'type': o['type'] ?? 'Takeaway',
-          'order_time': o['order_time'],
-          'chef_name': chefName,
-          'estimated_time': estTime,
-          'delay_reason': delayReason,
-          'table_number': tableNumber,
-          'kots_count': kots.length,
-        });
+      final tables = await _getList('/api/v1/tables?restaurantId=$restaurantId');
+      final tableNames = <String, String>{};
+      for (final table in tables) {
+        tableNames['${table['id']}'] =
+            '${table['name'] ?? table['tableNumber'] ?? table['table_number'] ?? table['id']}';
       }
+      final ticketsByOrder = <String, List<Map<String, dynamic>>>{};
+      for (final ticket in tickets) {
+        ticketsByOrder.putIfAbsent('${ticket['orderId']}', () => []).add(ticket);
+      }
+      orders.sort((a, b) => '${b['orderTime'] ?? ''}'.compareTo('${a['orderTime'] ?? ''}'));
+      final liveOrders = orders.map((o) {
+        final orderTickets = ticketsByOrder['${o['id']}'] ?? const [];
+        final latestTicket = orderTickets.isEmpty ? <String, dynamic>{} : orderTickets.last;
+        final tableId = o['tableId'];
+        final rawType = '${o['type'] ?? ''}'.toUpperCase().replaceAll('_', '-');
+        return <String, dynamic>{
+          'id': _asInt(o['id']),
+          'customer_name': o['customerName'] ?? 'Walk-in Guest',
+          'customer_phone': o['customerPhone'] ?? 'N/A',
+          'total_amount': o['totalAmount'] ?? 0,
+          'status': o['status'] ?? 'Received',
+          'type': rawType == 'DINE-IN' ? 'Dine-in' : 'Takeaway',
+          'order_time': o['orderTime'] ?? '',
+          'chef_name': latestTicket['assignedChef'] ?? 'Unassigned',
+          'estimated_time': latestTicket['estimatedMinutes'] ?? 15,
+          'delay_reason': latestTicket['delayReason'],
+          'table_number': tableNames['$tableId'] ?? (tableId == null ? 'Takeaway' : '$tableId'),
+          'kots_count': orderTickets.length,
+        };
+      }).toList();
 
-      // 2. Fetch Audit Logs
-      final List<Map<String, dynamic>> logs = await db.query(
-        'order_status_logs',
-        orderBy: 'changed_at DESC',
-        limit: 30,
-      );
-
-      // 3. Performance & Analytics Calculations
-      // Avg prep time (ready_at - started_cooking_at)
-      final List<Map<String, dynamic>> completedKots = await db.rawQuery('''
-        SELECT started_cooking_at, ready_at, chef_name 
-        FROM kot 
-        WHERE ready_at IS NOT NULL AND started_cooking_at IS NOT NULL
-      ''');
-
+      // Calculate prep metrics from REST kitchen ticket item timestamps.
       double totalPrepMinutes = 0;
       int completedCount = 0;
       Map<String, List<double>> chefTimes = {};
-      
-      for (var k in completedKots) {
-        final start = DateTime.tryParse(k['started_cooking_at'] as String);
-        final ready = DateTime.tryParse(k['ready_at'] as String);
-        if (start != null && ready != null) {
-          final diff = ready.difference(start).inSeconds / 60.0;
+      for (final ticket in tickets) {
+        final items = ticket['items'];
+        if (items is! List) continue;
+        for (final rawItem in items) {
+          if (rawItem is! Map) continue;
+          final item = Map<String, dynamic>.from(rawItem);
+          final seconds = _asInt(item['prepSeconds']);
+          if (seconds != null && seconds >= 0) {
+          final diff = seconds / 60.0;
           totalPrepMinutes += diff;
           completedCount++;
-
-          final chef = k['chef_name'] as String? ?? 'Kitchen';
+          final chef = '${item['chefName'] ?? ticket['assignedChef'] ?? 'Kitchen'}';
           chefTimes.putIfAbsent(chef, () => []).add(diff);
+          }
         }
       }
 
@@ -172,122 +138,122 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> with SingleTick
       });
 
       // Peak Hours
-      final List<Map<String, dynamic>> rawHours = await db.rawQuery('''
-        SELECT strftime('%H', order_time) as hour, COUNT(*) as count 
-        FROM orders 
-        GROUP BY hour 
-        ORDER BY count DESC
-      ''');
-      List<Map<String, dynamic>> peakHours = rawHours.map((rh) {
-        final h = int.tryParse(rh['hour'] as String? ?? '0') ?? 0;
+      final hourCounts = <int, int>{};
+      for (final order in orders) {
+        final time = DateTime.tryParse('${order['orderTime'] ?? ''}');
+        if (time != null) hourCounts.update(time.hour, (n) => n + 1, ifAbsent: () => 1);
+      }
+      final sortedHours = hourCounts.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      final peakHours = sortedHours.map((entry) {
+        final h = entry.key;
         final ampm = h >= 12 ? 'PM' : 'AM';
         final displayHour = h == 0 ? 12 : (h > 12 ? h - 12 : h);
         return {
           'time_range': '$displayHour:00 $ampm',
-          'order_count': rh['count'],
+          'order_count': entry.value,
         };
       }).toList();
 
-      final int completedOrdersCount = orderMaps.where((o) => o['status'] == 'Completed').length;
+      final int completedOrdersCount = orders.where((o) =>
+          ['COMPLETED', 'BILLED', 'PAID'].contains('${o['status']}'.toUpperCase())).length;
       final int delayedOrdersCount = liveOrders.where((o) => o['delay_reason'] != null).length;
 
       if (mounted) {
         setState(() {
           _liveOrders = liveOrders;
-          _auditLogs = logs;
           _avgPrepTime = completedCount > 0 ? (totalPrepMinutes / completedCount) : 12.5;
           _totalCompleted = completedOrdersCount;
           _totalDelayed = delayedOrdersCount;
           _chefStats = chefStats;
           _peakHours = peakHours;
-          
+          _loadError = null;
+          _hasLoaded = true;
           _isLoading = false;
         });
       }
     } catch (e) {
       print('Error loading tracking analytics: $e');
       if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
-  }
-
-  Future<void> _updateOrderStatusDirectly(int orderId, String newStatus) async {
-    try {
-      final db = await _dbHelper.database;
-      final nowStr = DateTime.now().toIso8601String();
-
-      await db.transaction((txn) async {
-        // Update Order Status
-        await txn.update(
-          'orders',
-          {'status': newStatus},
-          where: 'id = ?',
-          whereArgs: [orderId],
-        );
-
-        // Update KOT statuses if changing core tracking stages
-        String? kotStatus;
-        if (newStatus == 'Preparing') {
-          kotStatus = 'Cooking';
-        } else if (newStatus == 'Ready') {
-          kotStatus = 'Ready';
-        } else if (newStatus == 'Completed' || newStatus == 'Served') {
-          kotStatus = 'Served';
-        }
-
-        if (kotStatus != null) {
-          await txn.update(
-            'kot',
-            {'status': kotStatus},
-            where: 'order_id = ?',
-            whereArgs: [orderId],
-          );
-          await txn.update(
-            'order_items',
-            {'status': kotStatus},
-            where: 'order_id = ?',
-            whereArgs: [orderId],
-          );
-        }
-
-        // Insert timeline audit log
-        await txn.insert('order_status_logs', {
-          'order_id': orderId,
-          'status': newStatus,
-          'changed_at': nowStr,
-          'changed_by': 'Admin Dashboard',
-          'notes': 'Order status changed manually to $newStatus.',
+        setState(() {
+          if (!_hasLoaded) _loadError = e.toString();
+          _isLoading = false;
         });
-      });
-
-      // Synchronize table status
-      await TableRepository().syncTableStatusForOrder(orderId);
-      SyncService.instance.broadcastEvent('database_update', {'orderId': orderId, 'status': newStatus});
-
-      _loadAllTrackingData(silent: true);
-
-    } catch (e) {
-
+      }
+    } finally {
+      _isRefreshing = false;
     }
   }
+
+  Future<void> _loadAuditLogs() async {
+    if (_isLoadingAuditLogs) return;
+    _isLoadingAuditLogs = true;
+    try {
+      final orders = await _getList(
+        '/api/v1/orders?restaurantId=${await _selectedRestaurantId()}',
+      );
+      orders.sort((a, b) => '${b['orderTime'] ?? ''}'.compareTo('${a['orderTime'] ?? ''}'));
+      final logResults = await Future.wait(orders.take(5).map((order) async {
+        final orderId = _asInt(order['id']);
+        if (orderId == null) return <Map<String, dynamic>>[];
+        try {
+          return await _getList('/api/v1/orders/$orderId/timeline');
+        } catch (_) {
+          return <Map<String, dynamic>>[];
+        }
+      }));
+      final logs = logResults.expand((items) => items).map((log) => {
+        ...log,
+        'order_id': log['order_id'] ?? log['orderId'],
+        'status': log['to_status'] ?? log['toStatus'] ?? log['status'] ?? 'Updated',
+        'changed_at': log['created_at'] ?? log['createdAt'] ?? '',
+        'changed_by': log['actor_id'] ?? log['actorId'] ?? 'System',
+        'notes': log['reason'] ?? log['notes'] ?? '',
+      }).toList()
+        ..sort((a, b) => '${b['changed_at']}'.compareTo('${a['changed_at']}'));
+      if (logs.length > 30) logs.removeRange(30, logs.length);
+      if (mounted) setState(() => _auditLogs = logs);
+    } catch (e) {
+      debugPrint('Error loading order timelines: $e');
+    } finally {
+      _isLoadingAuditLogs = false;
+    }
+  }
+
+  Future<int> _selectedRestaurantId() async {
+    return await ApiMode.currentRestaurantId() ?? 1;
+  }
+
+  Future<List<Map<String, dynamic>>> _getList(String path) async {
+    final response = await _api.getJson(path);
+    if (response is! List) return const [];
+    return response.whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList();
+  }
+
+  int? _asInt(dynamic value) => value is int ? value : int.tryParse('$value');
 
   // Get index for tracking progress bar
   double _getProgressValue(String status) {
-    switch (status) {
-      case 'Received':
+    switch (status.toUpperCase()) {
+      case 'RECEIVED':
+      case 'PENDING':
+      case 'DRAFT':
         return 0.15;
-      case 'Sent to Kitchen':
+      case 'SENT TO KITCHEN':
+      case 'CONFIRMED':
         return 0.35;
-      case 'Preparing':
+      case 'PREPARING':
+      case 'COOKING':
         return 0.55;
-      case 'Ready':
+      case 'READY':
         return 0.75;
-      case 'Served':
+      case 'SERVED':
         return 0.90;
-      case 'Completed':
+      case 'COMPLETED':
+      case 'BILLED':
+      case 'PAID':
         return 1.0;
-      case 'Cancelled':
+      case 'CANCELLED':
         return 0.0;
       default:
         return 0.1;
@@ -295,20 +261,26 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> with SingleTick
   }
 
   Color _getStatusColor(String status) {
-    switch (status) {
-      case 'Received':
+    switch (status.toUpperCase()) {
+      case 'RECEIVED':
+      case 'PENDING':
+      case 'DRAFT':
         return Colors.blue;
-      case 'Sent to Kitchen':
+      case 'SENT TO KITCHEN':
+      case 'CONFIRMED':
         return Colors.orange;
-      case 'Preparing':
+      case 'PREPARING':
+      case 'COOKING':
         return Colors.amber;
-      case 'Ready':
+      case 'READY':
         return Colors.purple;
-      case 'Served':
+      case 'SERVED':
         return Colors.teal;
-      case 'Completed':
+      case 'COMPLETED':
+      case 'BILLED':
+      case 'PAID':
         return Colors.green;
-      case 'Cancelled':
+      case 'CANCELLED':
         return Colors.red;
       default:
         return Colors.grey;
@@ -336,6 +308,27 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> with SingleTick
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
+          : _loadError != null
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.cloud_off, size: 40, color: Colors.grey),
+                    const SizedBox(height: 12),
+                    const Text('Could not load live tracking data from the API.'),
+                    const SizedBox(height: 8),
+                    Text(_loadError!, textAlign: TextAlign.center),
+                    const SizedBox(height: 12),
+                    FilledButton(
+                      onPressed: () => _loadAllTrackingData(),
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            )
           : TabBarView(
               controller: _tabController,
               children: [
@@ -348,8 +341,6 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> with SingleTick
 
   // VIEW 1: Live Status Grid Tracker (Kanban-like rows)
   Widget _buildLiveStatusTrackerView() {
-    final activeStages = ['Received', 'Sent to Kitchen', 'Preparing', 'Ready', 'Served'];
-    
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(
@@ -363,7 +354,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> with SingleTick
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               Text(
-                '${_liveOrders.where((o) => o['status'] != 'Completed' && o['status'] != 'Cancelled').length} Active Orders',
+                '${_liveOrders.where((o) => !['COMPLETED', 'CANCELLED', 'BILLED', 'PAID'].contains('${o['status']}'.toUpperCase())).length} Active Orders',
                 style: const TextStyle(color: Colors.blueGrey, fontWeight: FontWeight.w600),
               ),
             ],
@@ -375,8 +366,6 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> with SingleTick
               itemBuilder: (context, index) {
                 final order = _liveOrders[index];
                 final status = order['status'] as String;
-                final isDone = status == 'Completed' || status == 'Cancelled';
-
                 return Card(
                   margin: const EdgeInsets.only(bottom: 12),
                   shape: RoundedRectangleBorder(
@@ -431,19 +420,20 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> with SingleTick
                               ),
                             ),
                             
-                            // Status Dropdown selector to manual adjust (Simulator)
-                            DropdownButton<String>(
-                              value: activeStages.contains(status) ? status : (isDone ? status : 'Received'),
-                              underline: const SizedBox(),
-                              style: TextStyle(color: _getStatusColor(status), fontWeight: FontWeight.bold, fontSize: 13),
-                              items: ['Received', 'Sent to Kitchen', 'Preparing', 'Ready', 'Served', 'Completed', 'Cancelled']
-                                  .map((s) => DropdownMenuItem(value: s, child: Text(s)))
-                                  .toList(),
-                              onChanged: (val) {
-                                if (val != null) {
-                                  _updateOrderStatusDirectly(order['id'] as int, val);
-                                }
-                              },
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: _getStatusColor(status).withValues(alpha: .1),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Text(
+                                status,
+                                style: TextStyle(
+                                  color: _getStatusColor(status),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
                             ),
                           ],
                         ),

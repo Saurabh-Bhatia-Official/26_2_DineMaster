@@ -6,7 +6,9 @@ import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/database/database_helper.dart';
+import '../core/api/api_mode.dart';
 import '../main.dart';
+import '../repositories/settings_repository.dart';
 import '../services/sync_service.dart';
 import 'admin/components/table_configuration_dialog.dart';
 
@@ -151,6 +153,22 @@ class SettingsScreen extends StatelessWidget {
     final prefs = await SharedPreferences.getInstance();
     bool showWaiter = prefs.getBool('show_waiter_assignment') ?? true;
     bool showChef = prefs.getBool('show_chef_assignment') ?? true;
+    final useBackend = await ApiMode.useBackendApi();
+    final branchId = DatabaseHelper.currentRestaurantId;
+    if (useBackend) {
+      try {
+        final remote = await SettingsRepository().getSettings(branchId: branchId);
+        showWaiter = remote['show_waiter_assignment'] as bool? ?? showWaiter;
+        showChef = remote['show_chef_assignment'] as bool? ?? showChef;
+      } catch (error) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not load settings: $error')),
+          );
+        }
+        return;
+      }
+    }
 
     if (!context.mounted) return;
 
@@ -170,6 +188,22 @@ class SettingsScreen extends StatelessWidget {
                   ),
                   value: showWaiter,
                   onChanged: (val) async {
+                    if (useBackend) {
+                      try {
+                        await SettingsRepository().updateSetting(
+                          'show_waiter_assignment',
+                          val,
+                          branchId: branchId,
+                        );
+                      } catch (error) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Could not save setting: $error')),
+                          );
+                        }
+                        return;
+                      }
+                    }
                     await prefs.setBool('show_waiter_assignment', val);
                     setDialogState(() => showWaiter = val);
                   },
@@ -181,6 +215,22 @@ class SettingsScreen extends StatelessWidget {
                   ),
                   value: showChef,
                   onChanged: (val) async {
+                    if (useBackend) {
+                      try {
+                        await SettingsRepository().updateSetting(
+                          'show_chef_assignment',
+                          val,
+                          branchId: branchId,
+                        );
+                      } catch (error) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Could not save setting: $error')),
+                          );
+                        }
+                        return;
+                      }
+                    }
                     await prefs.setBool('show_chef_assignment', val);
                     setDialogState(() => showChef = val);
                   },
@@ -260,14 +310,34 @@ class SettingsScreen extends StatelessWidget {
 
   void _showGstScaleDialog(BuildContext context) async {
     final prefs = await SharedPreferences.getInstance();
-    final rawScale = prefs.getString('gst_scale') ?? '0.0,5.0,12.0,18.0,28.0';
-
-    // Parse to list
-    List<double> scale = rawScale
-        .split(',')
-        .map((s) => double.tryParse(s.trim()) ?? -1.0)
-        .where((val) => val >= 0.0)
-        .toList();
+    final useBackend = await ApiMode.useBackendApi();
+    final branchId = DatabaseHelper.currentRestaurantId;
+    dynamic rawScale = prefs.getString('gst_scale') ?? '0.0,5.0,12.0,18.0,28.0';
+    if (useBackend) {
+      try {
+        final remote = await SettingsRepository().getSettings(branchId: branchId);
+        rawScale = remote['gst_scale'] ?? rawScale;
+      } catch (error) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not load settings: $error')),
+          );
+        }
+        return;
+      }
+    }
+    final List<double> scale = rawScale is List
+        ? rawScale
+              .whereType<num>()
+              .map((value) => value.toDouble())
+              .where((value) => value >= 0 && value <= 100)
+              .toList()
+        : rawScale
+              .toString()
+              .split(',')
+              .map((value) => double.tryParse(value.trim()) ?? -1)
+              .where((value) => value >= 0 && value <= 100)
+              .toList();
     scale.sort();
 
     final rateController = TextEditingController();
@@ -376,6 +446,22 @@ class SettingsScreen extends StatelessWidget {
                       return;
                     }
 
+                    if (useBackend) {
+                      try {
+                        await SettingsRepository().updateSetting(
+                          'gst_scale',
+                          scale,
+                          branchId: branchId,
+                        );
+                      } catch (error) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Could not save GST settings: $error')),
+                          );
+                        }
+                        return;
+                      }
+                    }
                     final serialized = scale.join(',');
                     await prefs.setString('gst_scale', serialized);
 

@@ -102,17 +102,10 @@ class _PosScreenState extends State<PosScreen>
           _selectedTableId = widget.selectedTableId;
         });
 
-        final db = await DatabaseHelper.instance.database;
-        final activeOrders = await db.query(
-          'orders',
-          where:
-              'table_id = ? AND status IN (\'Held\', \'Received\', \'Sent to Kitchen\', \'Preparing\', \'Ready\', \'Served\', \'Billing Pending\')',
-          whereArgs: [widget.selectedTableId],
-          orderBy: 'order_time DESC',
-          limit: 1,
+        final activeOrderId = await _findActiveOrderIdForTable(
+          widget.selectedTableId!,
         );
-        if (activeOrders.isNotEmpty) {
-          final activeOrderId = activeOrders.first['id'] as int;
+        if (activeOrderId != null) {
           await _reopenOrder(activeOrderId);
         }
       }
@@ -1086,6 +1079,31 @@ class _PosScreenState extends State<PosScreen>
 
   Future<bool> _useBackendApi() async {
     return ApiMode.useBackendApi();
+  }
+
+  Future<int?> _findActiveOrderIdForTable(int tableId) async {
+    if (await _useBackendApi()) {
+      final restaurantId = DatabaseHelper.currentRestaurantId ?? 1;
+      final orders = await _orderApiRepository.getOrders(restaurantId);
+      final activeOrders = orders.where((order) {
+        final status = order.status.toUpperCase();
+        return order.tableId == tableId &&
+            ['DRAFT', 'CONFIRMED', 'BILLED'].contains(status);
+      }).toList()
+        ..sort((a, b) => b.orderTime.compareTo(a.orderTime));
+      return activeOrders.isEmpty ? null : activeOrders.first.id;
+    }
+
+    final db = await DatabaseHelper.instance.database;
+    final activeOrders = await db.query(
+      'orders',
+      where:
+          'table_id = ? AND status IN (\'Held\', \'Received\', \'Sent to Kitchen\', \'Preparing\', \'Ready\', \'Served\', \'Billing Pending\')',
+      whereArgs: [tableId],
+      orderBy: 'order_time DESC',
+      limit: 1,
+    );
+    return activeOrders.isEmpty ? null : activeOrders.first['id'] as int;
   }
 
   Future<void> _confirmDeleteHoldOrder(
@@ -2685,13 +2703,14 @@ class _PosScreenState extends State<PosScreen>
     final subtotal = _getSubtotal();
     final tax = _getTax();
     final total = _getTotal();
+    final compact = MediaQuery.sizeOf(context).height < 720;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // Cart Header
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: compact ? 6 : 12),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -2763,7 +2782,7 @@ class _PosScreenState extends State<PosScreen>
         if (_editingOrderId != null && _backendOrderTotal != null)
           Container(
             margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-            padding: const EdgeInsets.all(12),
+            padding: EdgeInsets.all(compact ? 8 : 12),
             decoration: BoxDecoration(
               color: Colors.green.shade50,
               borderRadius: BorderRadius.circular(10),
@@ -2777,7 +2796,7 @@ class _PosScreenState extends State<PosScreen>
         else if (_editingOrderId == null)
           Container(
             margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-            padding: const EdgeInsets.all(12),
+            padding: EdgeInsets.all(compact ? 8 : 12),
             decoration: BoxDecoration(
               color: Colors.blue.shade50,
               borderRadius: BorderRadius.circular(10),
@@ -2789,7 +2808,7 @@ class _PosScreenState extends State<PosScreen>
           ),
         // Customer Details Row
         Padding(
-          padding: const EdgeInsets.all(12.0),
+          padding: EdgeInsets.all(compact ? 6 : 12),
           child: Row(
             children: [
               Expanded(
@@ -2837,7 +2856,7 @@ class _PosScreenState extends State<PosScreen>
 
         // Order Type Selector
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+          padding: EdgeInsets.symmetric(horizontal: 12, vertical: compact ? 4 : 8),
           child: DropdownButtonFormField<String>(
             value: _selectedOrderType,
             style: TextStyle(
@@ -2869,9 +2888,9 @@ class _PosScreenState extends State<PosScreen>
         // Table Selection (Dine In)
         if (_selectedOrderType == 'Table Order') ...[
           Padding(
-            padding: const EdgeInsets.symmetric(
+            padding: EdgeInsets.symmetric(
               horizontal: 12.0,
-              vertical: 4.0,
+              vertical: compact ? 2 : 4,
             ),
             child: Row(
               children: [
@@ -2909,17 +2928,9 @@ class _PosScreenState extends State<PosScreen>
                         _selectedTableId = val?.id;
                       });
                       if (val != null) {
-                        final db = await DatabaseHelper.instance.database;
-                        final activeOrders = await db.query(
-                          'orders',
-                          where:
-                              'table_id = ? AND status IN (\'Held\', \'Received\', \'Sent to Kitchen\', \'Preparing\', \'Ready\', \'Served\', \'Billing Pending\')',
-                          whereArgs: [val.id],
-                          orderBy: 'order_time DESC',
-                          limit: 1,
-                        );
-                        if (activeOrders.isNotEmpty) {
-                          final activeOrderId = activeOrders.first['id'] as int;
+                        final activeOrderId =
+                            await _findActiveOrderIdForTable(val.id!);
+                        if (activeOrderId != null) {
                           await _reopenOrder(activeOrderId);
                         } else {
                           setState(() {
@@ -3104,7 +3115,7 @@ class _PosScreenState extends State<PosScreen>
 
         // Billing Details
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: compact ? 4 : 10),
           child: Column(
             children: [
               _buildBillRow('Subtotal', '₹${subtotal.toStringAsFixed(2)}'),
@@ -3137,7 +3148,7 @@ class _PosScreenState extends State<PosScreen>
                 '₹${total.toStringAsFixed(2)}',
                 isTotal: true,
               ),
-              const SizedBox(height: 12),
+              SizedBox(height: compact ? 5 : 12),
 
               DropdownButtonFormField<String>(
                 value: _selectedPaymentType,
@@ -3168,7 +3179,7 @@ class _PosScreenState extends State<PosScreen>
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
+              SizedBox(height: compact ? 5 : 12),
 
               Row(
                 children: [
@@ -3213,7 +3224,7 @@ class _PosScreenState extends State<PosScreen>
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: compact ? 4 : 8),
               Row(
                 children: [
                   if (_backendOrderTotal == null) ...[

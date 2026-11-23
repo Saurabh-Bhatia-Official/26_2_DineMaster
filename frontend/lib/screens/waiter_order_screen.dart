@@ -14,6 +14,7 @@ import '../models/table_model.dart';
 import '../repositories/product_repository.dart';
 import '../repositories/table_repository.dart';
 import '../repositories/user_repository.dart';
+import '../repositories/settings_repository.dart';
 import '../services/sync_service.dart';
 import 'waiter/waiter_models.dart';
 import 'waiter/components/waiter_cart_panel.dart';
@@ -493,6 +494,7 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
       debugPrint('Could not load waiter assignment options: $error');
     }
     final prefs = await SharedPreferences.getInstance();
+    final assignmentSettings = await _loadAssignmentSettings(prefs);
     final username = prefs.getString('username');
     final waiters = allUsers.where((user) {
       return RoleNames.canonical(user['role']?.toString() ?? '') == 'WAITER';
@@ -512,8 +514,8 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
         return RoleNames.canonical(user['role']?.toString() ?? '') == 'CHEF';
       }).toList();
       _waitersList = waiters;
-      _showWaiterAssignment = prefs.getBool('show_waiter_assignment') ?? true;
-      _showChefAssignment = prefs.getBool('show_chef_assignment') ?? true;
+      _showWaiterAssignment = assignmentSettings['show_waiter_assignment']!;
+      _showChefAssignment = assignmentSettings['show_chef_assignment']!;
       if (username != null && _selectedWaiterId == null) {
         final matchingWaiter = _firstOrNull(
           waiters.where(
@@ -535,6 +537,30 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
       }
       _isLoading = false;
     });
+  }
+
+  Future<Map<String, bool>> _loadAssignmentSettings(
+    SharedPreferences prefs,
+  ) async {
+    var showWaiter = prefs.getBool('show_waiter_assignment') ?? true;
+    var showChef = prefs.getBool('show_chef_assignment') ?? true;
+    if (await ApiMode.useBackendApi()) {
+      try {
+        final remote = await SettingsRepository().getSettings(
+          branchId: DatabaseHelper.currentRestaurantId,
+        );
+        showWaiter = remote['show_waiter_assignment'] as bool? ?? showWaiter;
+        showChef = remote['show_chef_assignment'] as bool? ?? showChef;
+        await prefs.setBool('show_waiter_assignment', showWaiter);
+        await prefs.setBool('show_chef_assignment', showChef);
+      } catch (error) {
+        debugPrint('Could not load assignment settings from backend: $error');
+      }
+    }
+    return {
+      'show_waiter_assignment': showWaiter,
+      'show_chef_assignment': showChef,
+    };
   }
 
   String _waiterDisplayOrderStatus(String status) {

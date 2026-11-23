@@ -1,4 +1,4 @@
-import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
@@ -24,14 +24,12 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _initializeApp() async {
-    // Brief pause for splash animation
-    await Future.delayed(const Duration(milliseconds: 900));
-    if (!mounted) return;
-
     try {
       final prefs = await SharedPreferences.getInstance();
       // Automatically preserve and keep existing data; never prompt the user to clean data
-      await prefs.setString('setup_data_choice', 'keep');
+      if (!kIsWeb) {
+        await prefs.setString('setup_data_choice', 'keep');
+      }
 
       // Initialize or connect to database
       if (mounted) {

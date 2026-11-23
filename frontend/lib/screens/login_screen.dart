@@ -51,42 +51,11 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<bool> _changeInitialPassword(String currentPassword) async {
-    final controller = TextEditingController();
-    final formKey = GlobalKey<FormState>();
     final newPassword = await showDialog<String>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Change your temporary password'),
-        content: Form(
-          key: formKey,
-          child: TextFormField(
-            controller: controller,
-            obscureText: true,
-            autofocus: true,
-            decoration: const InputDecoration(labelText: 'New password'),
-            validator: (value) => value == null || value.length < 10
-                ? 'Use at least 10 characters'
-                : null,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (formKey.currentState!.validate()) {
-                Navigator.pop(dialogContext, controller.text);
-              }
-            },
-            child: const Text('Change password'),
-          ),
-        ],
-      ),
+      builder: (_) => const _InitialPasswordDialog(),
     );
-    controller.dispose();
     if (newPassword == null || !mounted) return false;
     try {
       await UserRepository().changePassword(currentPassword, newPassword);
@@ -128,8 +97,12 @@ class _LoginScreenState extends State<LoginScreen> {
           password,
         );
         if (!mounted) return;
-        if (user == null ||
-            _normalizeRole(user.role) != _normalizeRole(_selectedRole)) {
+        // The backend authenticates the account and returns its authoritative
+        // role. The role dropdown is only used by the local database flow; it
+        // is not part of the backend login request, so comparing it here can
+        // reject a valid login (for example, a server response with role CHEF
+        // while the dropdown still shows Manager).
+        if (user == null) {
           setState(
             () => _loginError =
                 'Invalid email or password. Check your details and try again.',
@@ -973,5 +946,56 @@ class _LoginScreenState extends State<LoginScreen> {
       usernameController.dispose();
       passwordController.dispose();
     });
+  }
+}
+
+class _InitialPasswordDialog extends StatefulWidget {
+  const _InitialPasswordDialog();
+
+  @override
+  State<_InitialPasswordDialog> createState() => _InitialPasswordDialogState();
+}
+
+class _InitialPasswordDialogState extends State<_InitialPasswordDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _passwordController = TextEditingController();
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Change your temporary password'),
+      content: Form(
+        key: _formKey,
+        child: TextFormField(
+          controller: _passwordController,
+          obscureText: true,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'New password'),
+          validator: (value) => value == null || value.length < 10
+              ? 'Use at least 10 characters'
+              : null,
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (_formKey.currentState!.validate()) {
+              Navigator.pop(context, _passwordController.text);
+            }
+          },
+          child: const Text('Change password'),
+        ),
+      ],
+    );
   }
 }

@@ -2577,7 +2577,7 @@ Void of cooked items: movement `VOID_WASTE`. Void before cooking: no deduction.
 
 **F.** `ops.notifications(id, tenant_id, branch_id, user_id, role_code, type, title, body, ref_type, ref_id, read_at, created_at)`.
 
-**G.** `GET /api/v1/notifications?unread=true`, `POST /api/v1/notifications/{id}/read`, `POST /api/v1/notifications/read-all`.
+**G.** Implemented inbox API (requires bearer auth and `notification:view`): `GET /api/v1/notifications?unread=true&limit=50` returns the signed-in user's and role's notifications, newest first (limit 1–100); `POST /api/v1/notifications/{id}/read` marks one visible notification read (204; 404 if outside the caller's scope); `POST /api/v1/notifications/read-all` returns `{"updatedCount": n}`. Rows are tenant- and assigned-branch-scoped. Notification event producers and WebSocket delivery remain future work.
 
 **H.** Dedupe key per (type, ref_id, recipient) within 5 minutes.
 
@@ -2665,9 +2665,9 @@ Void of cooked items: movement `VOID_WASTE`. Void before cooking: no deduction.
 
 **E.** `SettingsService` with typed keys and validation.
 
-**F.** `core.settings(id, tenant_id, branch_id nullable, key, value jsonb, version, updated_by, updated_at)`, unique `(tenant_id, coalesce(branch_id), key)`.
+**F.** Implemented `settings(id, tenant_id, branch_id nullable, setting_key, value_json, version, updated_by, updated_at)` with separate tenant and branch uniqueness; `setting_audit` records old/new JSON values and actor.
 
-**G.** `GET /api/v1/settings`, `PUT /api/v1/settings/{key}`.
+**G.** Implemented with bearer auth: `GET /api/v1/settings?branchId=1` requires `settings:view` and returns resolved values; `PUT /api/v1/settings/{key}?branchId=1` requires `settings:update` and accepts `{"value": ...}`. Initial supported keys are `gst_scale` (Owner only, unique numeric rates 0–100), `show_waiter_assignment`, and `show_chef_assignment` (Owner or Manager for an assigned branch). Tenant and branch values resolve with branch overrides; defaults are returned when unset. The Manager must specify a branch. Values have version and scope metadata.
 
 **H.** Resolution: branch value overrides tenant value overrides default.
 

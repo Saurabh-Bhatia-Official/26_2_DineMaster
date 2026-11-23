@@ -8,8 +8,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/api/api_mode.dart';
 import '../core/database/database_helper.dart';
 import '../repositories/restaurant_repository.dart';
+import '../repositories/notification_repository.dart';
 import '../repositories/user_repository.dart';
 import '../services/backend_api_client.dart';
+import '../widgets/notification_inbox_sheet.dart';
 
 class DashboardScreen extends StatefulWidget {
   final Widget child;
@@ -31,6 +33,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _username = 'User';
   Set<String> _permissions = {};
   bool _accessLoaded = false;
+  bool _notificationsEnabled = false;
+  int _unreadNotificationCount = 0;
 
   @override
   void initState() {
@@ -85,7 +89,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _username = prefs.getString('username') ?? 'User';
       _permissions = permissions;
       _accessLoaded = true;
+      _notificationsEnabled =
+          backendMode && permissions.contains('notification:view');
     });
+    if (backendMode && permissions.contains('notification:view')) {
+      _refreshUnreadNotificationCount();
+    }
+  }
+
+  Future<void> _refreshUnreadNotificationCount() async {
+    try {
+      final unread = await NotificationRepository().getNotifications(
+        unreadOnly: true,
+        limit: 100,
+      );
+      if (mounted) {
+        setState(() => _unreadNotificationCount = unread.length);
+      }
+    } catch (error) {
+      debugPrint('Could not load notification count: $error');
+    }
+  }
+
+  Future<void> _openNotifications() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => NotificationInboxSheet(
+        onUnreadCountChanged: (count) {
+          if (mounted) setState(() => _unreadNotificationCount = count);
+        },
+      ),
+    );
+    _refreshUnreadNotificationCount();
   }
 
   Set<String> _defaultPermissions(String role) {
@@ -599,19 +637,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                       ),
                     const SizedBox(width: 8),
-                    IconButton(
-                      tooltip: 'Notifications',
-                      icon: const Icon(
-                        Icons.notifications_none_rounded,
-                        size: 21,
+                    if (_notificationsEnabled)
+                      IconButton(
+                        tooltip: 'Notifications',
+                        icon: _NotificationBellIcon(
+                          unreadCount: _unreadNotificationCount,
+                        ),
+                        style: IconButton.styleFrom(
+                          backgroundColor: const Color(0xFFFAF8F6),
+                          foregroundColor: AppColors.ink,
+                          side: const BorderSide(color: AppColors.line),
+                        ),
+                        onPressed: _openNotifications,
                       ),
-                      style: IconButton.styleFrom(
-                        backgroundColor: const Color(0xFFFAF8F6),
-                        foregroundColor: AppColors.ink,
-                        side: const BorderSide(color: AppColors.line),
-                      ),
-                      onPressed: () {},
-                    ),
                     if (!isDesktop)
                       IconButton(
                         icon: const Icon(Icons.logout, size: 20),
@@ -760,5 +798,52 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
 
     return widgets;
+  }
+}
+
+class _NotificationBellIcon extends StatelessWidget {
+  final int unreadCount;
+
+  const _NotificationBellIcon({required this.unreadCount});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 24,
+      height: 24,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          const Align(
+            alignment: Alignment.center,
+            child: Icon(Icons.notifications_none_rounded, size: 21),
+          ),
+          if (unreadCount > 0)
+            Positioned(
+              top: -5,
+              right: -7,
+              child: Container(
+                constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.orange,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.white, width: 1.5),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  unreadCount > 99 ? '99+' : '$unreadCount',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 9,
+                    height: 1,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }

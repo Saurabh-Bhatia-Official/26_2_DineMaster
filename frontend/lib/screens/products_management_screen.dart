@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/api/api_mode.dart';
 import '../core/database/database_helper.dart';
 import '../services/backend_api_client.dart';
+import '../repositories/settings_repository.dart';
 import '../models/product_model.dart';
 import '../widgets/food_attributes_badge.dart';
 import 'recipe_management_screen.dart';
@@ -196,12 +197,35 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
     final Set<String> attributes = Set.from(existingProduct?.attributes ?? []);
 
     final prefs = await SharedPreferences.getInstance();
-    final rawScale = prefs.getString('gst_scale') ?? '0.0,5.0,12.0,18.0,28.0';
-    List<double> gstSlabs = rawScale
-        .split(',')
-        .map((s) => double.tryParse(s.trim()) ?? -1.0)
-        .where((val) => val >= 0.0)
-        .toList();
+    dynamic rawScale = prefs.getString('gst_scale') ?? '0.0,5.0,12.0,18.0,28.0';
+    if (await ApiMode.useBackendApi()) {
+      try {
+        final remote = await SettingsRepository().getSettings(
+          branchId: DatabaseHelper.currentRestaurantId,
+        );
+        rawScale = remote['gst_scale'] ?? rawScale;
+        if (rawScale is List) {
+          await prefs.setString(
+            'gst_scale',
+            rawScale.whereType<num>().map((value) => value.toString()).join(','),
+          );
+        }
+      } catch (error) {
+        debugPrint('Could not load GST scale from backend: $error');
+      }
+    }
+    List<double> gstSlabs = rawScale is List
+        ? rawScale
+              .whereType<num>()
+              .map((value) => value.toDouble())
+              .where((value) => value >= 0 && value <= 100)
+              .toList()
+        : rawScale
+              .toString()
+              .split(',')
+              .map((value) => double.tryParse(value.trim()) ?? -1.0)
+              .where((value) => value >= 0.0 && value <= 100.0)
+              .toList();
     if (gstSlabs.isEmpty) gstSlabs = [0.0, 5.0, 12.0, 18.0, 28.0];
     if (!gstSlabs.contains(gstPercentage)) gstSlabs.add(gstPercentage);
     gstSlabs.sort();

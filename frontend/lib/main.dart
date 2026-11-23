@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:dine_master/core/theme/app_colors.dart';
 import 'package:go_router/go_router.dart';
 import 'screens/splash_screen.dart';
@@ -26,42 +27,30 @@ import 'screens/customers_screen.dart';
 import 'screens/waiter_order_screen.dart';
 import 'services/server_service.dart';
 import 'services/sync_service.dart';
-import 'services/auth_token_storage.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 final themeNotifier = ValueNotifier<ThemeMode>(ThemeMode.light);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Use clean paths (for example, /dashboard) instead of hash URLs on web.
+  if (kIsWeb) {
+    usePathUrlStrategy();
+  }
+
   // Start the local server only on non-web platforms.
   // Browsers do not support Dart's InternetAddress.anyIPv4 server.
   if (!kIsWeb) {
     await ServerService.instance.startServer();
+    await SyncService.instance.initConnection();
   }
-
-  await SyncService.instance.initConnection();
-
-  final prefs = await SharedPreferences.getInstance();
-
-  var accessToken = await AuthTokenStorage.readAccessToken();
-  if (accessToken == null || accessToken.isEmpty) {
-    accessToken = prefs.getString('token');
-    if (accessToken != null && accessToken.isNotEmpty) {
-      await AuthTokenStorage.save(accessToken: accessToken);
-      await prefs.remove('token');
-    }
-  }
-  final hasToken = accessToken != null && accessToken.isNotEmpty;
 
   // Always enforce clean light theme.
   themeNotifier.value = ThemeMode.light;
-  await prefs.setString('theme_mode', 'light');
-
-  runApp(MyApp(hasToken: hasToken));
+  runApp(const MyApp());
 }
 
-GoRouter _buildRouter(bool hasToken, [String? initialLocation]) {
+GoRouter _buildRouter([String? initialLocation]) {
   return GoRouter(
     initialLocation: initialLocation ?? '/splash',
     routes: [
@@ -174,10 +163,9 @@ GoRouter _buildRouter(bool hasToken, [String? initialLocation]) {
 }
 
 class MyApp extends StatefulWidget {
-  final bool hasToken;
   final String? initialLocation;
 
-  const MyApp({super.key, required this.hasToken, this.initialLocation});
+  const MyApp({super.key, this.initialLocation});
 
   @override
   State<MyApp> createState() => _MyAppState();
@@ -189,7 +177,7 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
-    _router = _buildRouter(widget.hasToken, widget.initialLocation);
+    _router = _buildRouter(widget.initialLocation);
   }
 
   @override
