@@ -149,6 +149,17 @@ class OrderApiRepository {
     return OrderModel.fromMap(Map<String, dynamic>.from(response as Map));
   }
 
+  Future<Map<String, dynamic>> generateBill(int orderId) async {
+    final response = await _apiClient.postJson(
+      '/api/v1/orders/$orderId/bill',
+      const <String, dynamic>{},
+    );
+    if (response is! Map) {
+      throw const FormatException('Expected invoice details from the backend');
+    }
+    return Map<String, dynamic>.from(response);
+  }
+
   Future<Map<String, dynamic>> getBill(int orderId) async {
     final response = await _apiClient.getJson('/api/v1/orders/$orderId/bill');
     if (response is! Map) {

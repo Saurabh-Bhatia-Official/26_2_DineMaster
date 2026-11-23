@@ -1484,7 +1484,7 @@ stateDiagram-v2
   DRAFT --> CONFIRMED: confirm (KOT created)
   DRAFT --> CANCELLED: discard
   CONFIRMED --> CONFIRMED: add items (new KOT round)
-  CONFIRMED --> BILLED: generate bill (all items SERVED or CANCELLED)
+  CONFIRMED --> BILLED: generate bill (at least one order item)
   CONFIRMED --> CANCELLED: cancel (no item cooking)
   CONFIRMED --> VOIDED: manager void (after cooking)
   BILLED --> CONFIRMED: reopen bill (manager, before payment)
@@ -1500,7 +1500,7 @@ stateDiagram-v2
 |------|----|------------------|-----------|--------------|
 | DRAFT | CONFIRMED | Waiter, Cashier, Manager (`order:create`) | At least 1 item, table free or owned by order | KOT created, table status updated, event `order.confirmed` |
 | DRAFT | CANCELLED | Creator or Manager | none | Order kept for audit |
-| CONFIRMED | BILLED | Cashier, Manager (`bill:generate`) | No item in NEW, PENDING, COOKING, READY unless manager override | Invoice number assigned, totals frozen |
+| CONFIRMED | BILLED | Cashier, Manager, Owner (`bill:generate`) | At least one order item; kitchen status is not required | Invoice number assigned, totals frozen |
 | CONFIRMED | CANCELLED | Cashier (with reason), Manager | No item COOKING or later | All items CANCELLED |
 | CONFIRMED | VOIDED | Manager (`order:void`) | Reason required | Stock waste rule applies, event `order.voided` |
 | BILLED | PAID | Cashier, Manager (`payment:record`) | Sum of SUCCESS payments equals total | event `order.paid` (stock deduction) |
@@ -1603,7 +1603,7 @@ CGST and SGST split (half each) and GSTIN printing are required for legal Indian
 | Cancel item COOKING or READY | Manager only. Reason required. Food counted as waste. |
 | Cancel whole order | Allowed if no item is COOKING or later. Else void by Manager |
 | Add items to a running order | New KOT with `round_no + 1`. Same order. Earlier KOT unchanged |
-| Partial serve | Items served one by one. Bill allowed only when every item is SERVED or CANCELLED (manager may override) |
+| Partial serve | Kitchen status tracking is optional; confirmed orders with items can be billed |
 | Split bill (Target) | Items assigned to bill groups. Each group has its own invoice and payments |
 | Table transfer (Target) | Change `table_id`, both tables updated, logged |
 

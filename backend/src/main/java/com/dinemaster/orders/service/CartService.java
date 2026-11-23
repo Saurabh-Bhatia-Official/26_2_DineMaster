@@ -96,8 +96,10 @@ public class CartService {
             var table = tables.findForUpdateById(tableId).orElseThrow(() -> notFound("Table not found"));
             if (table.getRestaurant() == null || !branchId.equals(table.getRestaurant().getId()))
                 throw badRequest("Table does not belong to this branch");
-            if (!"Available".equalsIgnoreCase(table.getStatus()) || orders.countOpenOrdersForTable(tableId) > 0)
+            if (!"Available".equalsIgnoreCase(table.getStatus()))
                 throw conflict("Table is not available for a new cart");
+            if (orders.countOpenOrdersForTable(tableId) > 0)
+                throw conflict("Table already has an open order");
             order.setDiningTable(table); table.setStatus("Ordering");
             order.setWaiter(table.getWaiter() == null ? actor : table.getWaiter());
             order.setOrderTaker(actor.getName());

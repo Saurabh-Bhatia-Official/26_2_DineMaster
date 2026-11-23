@@ -2,7 +2,6 @@ package com.dinemaster.orders.service;
 
 import com.dinemaster.diningtable.service.TableWorkflowService;
 import com.dinemaster.orders.entity.Order;
-import com.dinemaster.orders.repository.OrderItemRepository;
 import com.dinemaster.orders.repository.OrderRepository;
 import com.dinemaster.user.entity.User;
 import org.springframework.http.HttpStatus;
@@ -10,20 +9,17 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
-import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 @Service
 public class WaiterService {
     private final OrderRepository orders;
-    private final OrderItemRepository items;
     private final TableWorkflowService tables;
     private final OrderAuditService audit;
     private final ApplicationEventPublisher publisher;
-    public WaiterService(OrderRepository orders, OrderItemRepository items, TableWorkflowService tables,
+    public WaiterService(OrderRepository orders, TableWorkflowService tables,
             OrderAuditService audit, ApplicationEventPublisher publisher) {
-        this.orders = orders; this.items = items; this.tables = tables; this.audit = audit; this.publisher = publisher;
+        this.orders = orders; this.tables = tables; this.audit = audit; this.publisher = publisher;
     }
     @Transactional
     public Map<String, Object> requestBill(Long orderId, User actor) {
@@ -37,9 +33,6 @@ public class WaiterService {
         if (!manager && !waiterOwns) throw new org.springframework.security.access.AccessDeniedException("Waiter can request bills only for their own orders");
         if (order.getDiningTable() == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "Bill request requires a table order");
         if (!"CONFIRMED".equalsIgnoreCase(order.getStatus())) throw new ResponseStatusException(HttpStatus.CONFLICT, "Only a confirmed order can request a bill");
-        List<com.dinemaster.orders.entity.OrderItem> lines = items.findByOrder_Id(orderId);
-        if (lines.isEmpty() || lines.stream().anyMatch(i -> !List.of("SERVED", "CANCELLED").contains(i.getStatus().toUpperCase(Locale.ROOT))))
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "All order items must be served or cancelled before requesting the bill");
         var table = order.getDiningTable();
         if (!manager && (table.getWaiter() == null || !table.getWaiter().getId().equals(actor.getId())))
             throw new org.springframework.security.access.AccessDeniedException("Table is assigned to another waiter");

@@ -126,7 +126,7 @@ Only the `(from, to)` pairs defined below are allowed. Any other transition must
 |---|---|---|---|---|
 | `DRAFT` | `CONFIRMED` | Waiter, Cashier, Manager (`order:create`) | At least one item; table free or owned by this order | KOT created, table updated, `order.confirmed` event |
 | `DRAFT` | `CANCELLED` | Creator or Manager | None specified | Order retained for audit |
-| `CONFIRMED` | `BILLED` | Cashier, Manager (`bill:generate`) | No item in `NEW`, `PENDING`, `COOKING`, `READY`, unless Manager override | Invoice number assigned; totals frozen |
+| `CONFIRMED` | `BILLED` | Cashier, Manager, Owner (`bill:generate`) | At least one order item; kitchen status is not required | Invoice number assigned; totals frozen |
 | `CONFIRMED` | `CANCELLED` | Cashier with reason, Manager | No item is `COOKING` or later | All items become `CANCELLED` |
 | `CONFIRMED` | `VOIDED` | Manager (`order:void`) | Reason required | Stock-waste rule applies; `order.voided` event |
 | `BILLED` | `PAID` | Cashier, Manager (`payment:record`) | Sum of successful payments equals total | `order.paid` event; stock deduction |
@@ -230,7 +230,7 @@ M11 must call the Table domain/service for the appropriate status update. The ta
 
 ### 7.4 Bill, pay and complete
 
-- Billing is permitted when all items are `SERVED` or `CANCELLED`, unless a Manager override is used as defined by the billing transition rule.
+- Billing is permitted for a confirmed order with at least one item. Kitchen item status is not required.
 - Bill generation assigns an invoice number and freezes totals.
 - Payment transition requires successful payments whose sum equals the order total.
 - Payment emits `order.paid`, which is consumed for stock deduction.

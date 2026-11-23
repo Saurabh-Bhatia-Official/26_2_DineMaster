@@ -36,6 +36,6 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     Optional<Order> findByIdAndTableSession_Id(Long orderId, Long sessionId);
 
     @Query("select count(o) from Order o where o.diningTable.id = :tableId "
-            + "and upper(o.status) not in ('COMPLETED', 'CANCELLED', 'VOIDED')")
+            + "and upper(o.status) not in ('PAID', 'COMPLETED', 'CANCELLED', 'CANCELED', 'VOIDED')")
     long countOpenOrdersForTable(@Param("tableId") Long tableId);
 }

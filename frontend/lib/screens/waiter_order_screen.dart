@@ -399,22 +399,18 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
           order.paymentStatus.toUpperCase() != 'PAID';
     }).map((order) {
       final map = order.toMap();
+      final orderTable = _firstOrNull(
+        tables.where((table) => table.id == order.tableId),
+      );
       map['order_taker_name'] = order.orderTakerName ?? 'Waiter';
-      map['table_number'] = _firstOrNull(
-        tables
-            .where((table) => table.id == order.tableId)
-            .map((table) => table.tableNumber),
-      );
-      map['table_name'] = _firstOrNull(
-        tables
-            .where((table) => table.id == order.tableId)
-            .map((table) => table.name),
-      );
+      map['table_number'] = orderTable?.tableNumber;
+      map['table_name'] = orderTable?.name;
       final ticketStatuses = (ticketsByOrder[order.id] ?? [])
           .map((ticket) => ticket['status']?.toString().toUpperCase())
           .whereType<String>()
           .toList();
-      if (order.status.toUpperCase() == 'BILL_REQUESTED') {
+      if (order.status.toUpperCase() == 'BILL_REQUESTED' ||
+          orderTable?.status.toUpperCase() == 'BILL_REQUESTED') {
         map['status'] = 'Billing Pending';
       } else if (ticketStatuses.contains('READY')) {
         map['status'] = 'Ready';
@@ -559,6 +555,13 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
         return status;
     }
   }
+
+  bool _canRequestBillForStatus(Object? status) => const {
+        'SENT TO KITCHEN',
+        'PREPARING',
+        'READY',
+        'SERVED',
+      }.contains(status?.toString().trim().toUpperCase());
 
   T? _firstOrNull<T>(Iterable<T> values) {
     for (final value in values) {
@@ -1301,19 +1304,6 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
   }
 
   Future<void> _requestBilling(int orderId, int? tableId) async {
-    final order = _firstOrNull(
-      _waiterOrdersList.where((item) => item['id'] == orderId),
-    );
-    final status = order?['status']?.toString();
-    if (status != 'Served' && status != 'Billing Pending') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Serve the order first. Bill request is available after it is marked Served.'),
-        ),
-      );
-      return;
-    }
-
     setState(() => _isLoading = true);
     try {
       if (await ApiMode.useBackendApi()) {
@@ -1899,7 +1889,7 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
                         );
                       },
                       ),
-                    if (orderStatus == 'Served')
+                    if (_canRequestBillForStatus(orderStatus))
                       ElevatedButton.icon(
                         icon: const Icon(Icons.request_page_outlined, size: 16),
                         label: const Text('Bill Request'),
@@ -2179,7 +2169,7 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
                                         foregroundColor: Colors.white,
                                       ),
                                     ),
-                                  if (status == 'Served')
+                                  if (_canRequestBillForStatus(status))
                                     ElevatedButton.icon(
                                       onPressed: () => _requestBilling(
                                         orderId,
@@ -2265,8 +2255,6 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
 
   Widget _buildWaiterFlowGuide() {
     final orders = _waiterOrdersList;
-    final hasReady = orders.any((order) => order['status'] == 'Ready');
-    final hasServed = orders.any((order) => order['status'] == 'Served');
     final hasBillRequested = orders.any(
       (order) => order['status'] == 'Billing Pending',
     );
@@ -2276,27 +2264,14 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
           order['status'] == 'Sent to Kitchen' ||
           order['status'] == 'Received',
     );
-    final currentStep = hasBillRequested
-        ? 4
-        : hasReady || hasServed
-        ? 3
-        : hasKitchenOrder
-        ? 2
-        : 1;
     final billOrder = _firstOrNull(
-      orders.where((order) => order['status'] == 'Billing Pending'),
+      orders.where((order) => _canRequestBillForStatus(order['status'])),
     );
-    final readyOrder = _firstOrNull(
-      orders.where((order) => order['status'] == 'Ready'),
-    );
-    final servedOrder = _firstOrNull(
-      orders.where((order) => order['status'] == 'Served'),
-    );
+    final currentStep = hasBillRequested ? 3 : billOrder != null ? 2 : 1;
     const steps = [
       ('1', 'Take order'),
-      ('2', 'Kitchen prepares'),
-      ('3', 'Serve & request bill'),
-      ('4', 'POS payment'),
+      ('2', 'Request bill'),
+      ('3', 'POS billing'),
     ];
 
     return Container(
@@ -2358,13 +2333,11 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
           Text(
             hasBillRequested
                 ? 'Next: open the POS payment screen for a bill-requested order.'
-            : hasReady
-                ? 'Next: mark a Ready order as Served, then request its bill.'
-                : hasServed
-                ? 'Next: request the bill for a served order. The POS payment screen opens next.'
+                : billOrder != null
+                ? 'Order #${billOrder['id']} is confirmed. Request its bill when ready; kitchen status updates are optional.'
                 : hasKitchenOrder
-                ? 'Order #${_firstOrNull(orders.where((order) => order['status'] == 'Sent to Kitchen' || order['status'] == 'Preparing'))?['id'] ?? ''} is waiting for kitchen staff. They must mark its KOT items Ready before you can serve it.'
-                : 'Start: select an available table, add items, and send the order to the kitchen.',
+                ? 'Kitchen status can be tracked separately. You can still request a bill for a confirmed order.'
+                : 'Start: select a table, add or remove menu items, then place the order.',
             style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
           ),
           const SizedBox(height: 10),
@@ -2372,41 +2345,36 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
             alignment: Alignment.centerLeft,
             child: ElevatedButton.icon(
               onPressed: billOrder != null
-                  ? () {
-                      final id = (billOrder['id'] as num).toInt();
-                      context.go('/dashboard/pos?orderId=$id');
-                    }
-                  : readyOrder != null
-                  ? () => _markOrderAsServed(
-                      (readyOrder['id'] as num).toInt(),
-                      (readyOrder['table_id'] as num?)?.toInt(),
-                    )
-                  : servedOrder != null
                   ? () => _requestBilling(
-                      (servedOrder['id'] as num).toInt(),
-                      (servedOrder['table_id'] as num?)?.toInt(),
+                      (billOrder['id'] as num).toInt(),
+                      (billOrder['table_id'] as num?)?.toInt(),
                     )
+                  : hasBillRequested
+                  ? () {
+                      final order = _firstOrNull(orders.where(
+                        (item) => item['status'] == 'Billing Pending',
+                      ));
+                      if (order != null) {
+                        context.go('/dashboard/pos?orderId=${order['id']}');
+                      }
+                    }
                   : hasKitchenOrder
                   ? () => context.go('/dashboard/kitchen')
                   : () => _tabController.animateTo(0),
               icon: Icon(
                 billOrder != null
-                    ? Icons.payment
-                    : readyOrder != null
-                    ? Icons.room_service_outlined
-                    : servedOrder != null
                     ? Icons.receipt_long
+                    : hasBillRequested
+                    ? Icons.payment
                     : hasKitchenOrder
                     ? Icons.refresh
                     : Icons.table_restaurant,
               ),
               label: Text(
                 billOrder != null
-                    ? 'Open POS & Complete Payment'
-                    : readyOrder != null
-                    ? 'Mark Ready Order Served'
-                    : servedOrder != null
-                    ? 'Request Bill & Continue to POS'
+                    ? 'Request Bill'
+                    : hasBillRequested
+                    ? 'Open POS for Billing'
                     : hasKitchenOrder
                     ? 'Open Kitchen KOT (kitchen staff)'
                     : 'Choose a Table to Start',
@@ -2445,8 +2413,8 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
           ),
           child: Text(
             _editingExistingOrderId == null
-                ? 'STEP 2 · ADD ITEMS\nAdd items for $_selectedTableDisplayName, review the cart, then press Send Order to Kitchen.'
-                : 'Adding items to order #$_editingExistingOrderId: Add this round and send it to the kitchen.',
+                ? 'STEP 2 · ADD ITEMS\nAdd or remove items for $_selectedTableDisplayName, review the cart, then place the order.'
+                : 'Adding items to order #$_editingExistingOrderId: Review this round, then place it.',
             style: const TextStyle(fontSize: 13, height: 1.35),
           ),
         ),

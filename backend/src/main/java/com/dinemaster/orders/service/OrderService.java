@@ -341,13 +341,8 @@ public class OrderService {
                         throw new ResponseStatusException(HttpStatus.CONFLICT, "Only confirmed orders can be billed");
 
                 List<OrderItem> lines = orderItemRepository.findByOrder_Id(orderId);
-                if (lines.isEmpty() || lines.stream().anyMatch(item -> {
-                        String status = item.getStatus() == null ? "" : item.getStatus().trim().toUpperCase(java.util.Locale.ROOT);
-                        return !status.equals("SERVED") && !status.equals("CANCELLED");
-                })) {
-                        throw new ResponseStatusException(HttpStatus.CONFLICT,
-                                        "All order items must be served or cancelled before billing");
-                }
+                if (lines.isEmpty())
+                        throw new ResponseStatusException(HttpStatus.CONFLICT, "An order with no items cannot be billed");
 
                 var branch = order.getRestaurant();
                 java.time.ZoneId zone;

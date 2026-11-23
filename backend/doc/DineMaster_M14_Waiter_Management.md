@@ -12,7 +12,7 @@
 
 ## 1. Module Overview
 
-M14 provides handheld ordering and table-service workflows for waiters. A waiter uses a phone to view the floor plan, select a table, record the guest count, browse the menu, customise items, build a cart, fire a KOT, receive kitchen-ready alerts, mark items served and request the bill.
+M14 provides handheld ordering and table-service workflows for waiters. A waiter uses a phone to view the floor plan, select a table, record the guest count, browse the menu, customise items, build a cart, place an order, optionally track serving status, and request a bill.
 
 The module is an **Edge/LAN client**. It uses the Order, Table and Kitchen endpoints; it does not own order, table, menu or kitchen domain logic.
 
@@ -93,7 +93,7 @@ The M14 source does not define dedicated permission-code strings for every waite
 10. Waiter taps **Fire KOT**.
 11. The waiter client sends the order action through the Order/Kitchen API contract.
 12. Kitchen processes the ticket; the waiter receives Ready alerts.
-13. Waiter serves the ready items and marks them served.
+13. Kitchen status tracking and marking items served are optional; a confirmed order can proceed to bill request.
 14. When guests ask to pay, waiter selects **Request Bill**.
 15. The Edge server sets the table status to `BILL_REQUESTED` and notifies Cashier.
 
@@ -254,7 +254,7 @@ The exact request DTO, response DTO and reassignment rules are not specified in 
 **[PROPOSED DETAIL]** Validate that:
 - The order exists and belongs to the current tenant/branch.
 - The waiter is allowed to access the order/table.
-- The order is in a state eligible for bill request according to M11.
+- The order is confirmed; kitchen item statuses are not required.
 - A duplicate request does not create duplicate notifications or inconsistent table transitions.
 
 The source does not define the request body, response body, duplicate-request semantics or exact notification event name.
@@ -550,7 +550,7 @@ The following details are not fully defined by the M14 source and must not be as
 7. Exact API request/response DTOs for table assignment, Fire KOT and request bill.
 8. Exact Ready notification event name, transport and acknowledgement behaviour.
 9. Exact API used by waiter to mark served and whether serving is per item or per order.
-10. Exact eligibility rules for requesting a bill; M11/billing contract must define them.
+10. Waiters may request a bill for their own confirmed table orders; item kitchen statuses are not required.
 11. Whether repeated bill requests are idempotent and how duplicate Cashier notifications are prevented.
 12. Exact waiter-assignment database constraints, foreign keys and indexes.
 13. Whether a waiter can serve multiple tables concurrently and whether one table can have multiple active waiters.

@@ -264,6 +264,44 @@ class _PosScreenState extends State<PosScreen>
 
   Future<void> _loadActiveOrders() async {
     try {
+      if (await _useBackendApi()) {
+        final restaurantId = DatabaseHelper.currentRestaurantId;
+        if (restaurantId == null) {
+          if (mounted) setState(() => _activeOrders = []);
+          return;
+        }
+        final orders = await _orderApiRepository.getOrders(restaurantId);
+        final activeOrders = orders.where((order) {
+          final status = order.status.toUpperCase();
+          return status == 'DRAFT' ||
+              status == 'CONFIRMED' ||
+              status == 'BILLED';
+        }).map((order) {
+          final matchingTables = _tables
+              .where((item) => item.id == order.tableId)
+              .toList();
+          final table = matchingTables.isEmpty ? null : matchingTables.first;
+          final rawStatus = order.status.toUpperCase();
+          return <String, dynamic>{
+            ...order.toMap(),
+            'status': rawStatus == 'DRAFT'
+                ? 'Received'
+                : rawStatus == 'BILLED'
+                ? 'Billing Pending'
+                : table?.status.toUpperCase() == 'BILLING PENDING' ||
+                      table?.status.toUpperCase() == 'BILL REQUESTED'
+                ? 'Billing Pending'
+                : 'Sent to Kitchen',
+            'table_number': table?.tableNumber,
+            'paid_amount': order.paymentStatus.toUpperCase() == 'PAID'
+                ? order.totalAmount
+                : 0.0,
+          };
+        }).toList();
+        if (mounted) setState(() => _activeOrders = activeOrders);
+        return;
+      }
+
       final db = await DatabaseHelper.instance.database;
       final restaurantId = DatabaseHelper.currentRestaurantId;
       final List<Map<String, dynamic>> orders = await db.rawQuery(
@@ -292,39 +330,39 @@ class _PosScreenState extends State<PosScreen>
     try {
       _products = await _productRepository.getProducts();
 
-      // Integration with Recipes & Ingredients
-      final db = await DatabaseHelper.instance.database;
-
-      List<ProductModel> updatedProducts = [];
-      for (var product in _products) {
-        bool isStockAvailable = true;
-
-        // Fetch recipe for this product
-        final recipeItems = await db.rawQuery(
-          '''
+      // Recipe stock checks require local SQLite. The browser uses the REST API
+      // and must not call the device-only SQL proxy.
+      if (!await _useBackendApi()) {
+        final db = await DatabaseHelper.instance.database;
+        List<ProductModel> updatedProducts = [];
+        for (var product in _products) {
+          bool isStockAvailable = true;
+          final recipeItems = await db.rawQuery(
+            '''
           SELECT recipes.*, COALESCE(inv.current_stock, ing.stock_quantity, 0) as available_stock 
           FROM recipes 
           LEFT JOIN inventory inv ON recipes.ingredient_id = inv.id
           LEFT JOIN ingredients ing ON recipes.ingredient_id = ing.id
           WHERE recipes.product_id = ?
-        ''',
-          [product.id],
-        );
-
-        for (var item in recipeItems) {
-          final stock = (item['available_stock'] as num?)?.toDouble() ?? 0.0;
-          final qtyNeeded = (item['quantity_used'] as num?)?.toDouble() ?? 0.0;
-          if (stock < qtyNeeded) {
-            isStockAvailable = false;
-            break;
+            ''',
+            [product.id],
+          );
+          for (var item in recipeItems) {
+            final stock = (item['available_stock'] as num?)?.toDouble() ?? 0.0;
+            final qtyNeeded = (item['quantity_used'] as num?)?.toDouble() ?? 0.0;
+            if (stock < qtyNeeded) {
+              isStockAvailable = false;
+              break;
+            }
           }
+          updatedProducts.add(
+            product.copyWith(
+              isAvailable: product.isAvailable && isStockAvailable,
+            ),
+          );
         }
-
-        // Combine DB availability and recipe availability
-        final finalAvailability = product.isAvailable && isStockAvailable;
-        updatedProducts.add(product.copyWith(isAvailable: finalAvailability));
+        _products = updatedProducts;
       }
-      _products = updatedProducts;
 
       _filterProducts();
     } catch (e) {
@@ -581,6 +619,7 @@ class _PosScreenState extends State<PosScreen>
           return;
         }
         try {
+          await _orderApiRepository.generateBill(_editingOrderId!);
           await _orderApiRepository.recordPayment(
             _editingOrderId!,
             _selectedPaymentType.trim().toUpperCase().replaceAll(' ', '_'),
@@ -1026,6 +1065,11 @@ class _PosScreenState extends State<PosScreen>
     if (hold) {
       await _orderApiRepository.hold(order.id!);
     } else if (_selectedPaymentType != 'Split') {
+      await _orderApiRepository.confirmOrder(
+        order.id!,
+        idempotencyKey: OrderApiRepository.newIdempotencyKey(),
+      );
+      await _orderApiRepository.generateBill(order.id!);
       await _orderApiRepository.recordPayment(order.id!, _selectedPaymentType);
     }
 
@@ -1509,19 +1553,41 @@ class _PosScreenState extends State<PosScreen>
   }
 
   void _showResumeDialog() async {
-    final db = await DatabaseHelper.instance.database;
-
-    // Load held and active kitchen orders with table numbers
-    final List<Map<String, dynamic>> heldOrders = await db.rawQuery(
-      '''
+    final useBackendApi = await _useBackendApi();
+    late final List<Map<String, dynamic>> heldOrders;
+    if (useBackendApi) {
+      final restaurantId = DatabaseHelper.currentRestaurantId;
+      if (restaurantId == null) {
+        heldOrders = [];
+      } else {
+        final orders = await _orderApiRepository.getOrders(restaurantId);
+        heldOrders = orders.where((order) {
+          final status = order.status.toUpperCase();
+          return status == 'DRAFT' || status == 'CONFIRMED' || status == 'BILLED';
+        }).map((order) {
+          final matchingTables = _tables
+              .where((item) => item.id == order.tableId)
+              .toList();
+          final table = matchingTables.isEmpty ? null : matchingTables.first;
+          return <String, dynamic>{
+            ...order.toMap(),
+            'table_number': table?.tableNumber,
+          };
+        }).toList();
+      }
+    } else {
+      final db = await DatabaseHelper.instance.database;
+      heldOrders = await db.rawQuery(
+        '''
       SELECT o.*, t.table_number 
       FROM orders o
       LEFT JOIN tables t ON o.table_id = t.id
       WHERE o.status IN ('Held', 'Received', 'Sent to Kitchen', 'Preparing', 'Ready', 'Served', 'Billing Pending') AND o.restaurant_id = ?
       ORDER BY o.order_time DESC
     ''',
-      [DatabaseHelper.currentRestaurantId],
-    );
+        [DatabaseHelper.currentRestaurantId],
+      );
+    }
 
     final searchController = TextEditingController();
 
@@ -1633,7 +1699,17 @@ class _PosScreenState extends State<PosScreen>
                                         ),
                                         ElevatedButton(
                                           onPressed: () async {
+                                            if (useBackendApi) {
+                                              final orderId =
+                                                  (order['id'] as num).toInt();
+                                              Navigator.pop(context);
+                                              await _reopenOrder(orderId);
+                                              return;
+                                            }
                                             // Load items into cart
+                                            final db = await DatabaseHelper
+                                                .instance
+                                                .database;
                                             final List<Map<String, dynamic>>
                                             items = await db.query(
                                               'order_items',

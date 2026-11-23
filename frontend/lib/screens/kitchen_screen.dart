@@ -284,12 +284,26 @@ class _KitchenScreenState extends State<KitchenScreen> {
           }
           final status = newStatus.toUpperCase();
           for (final item in items) {
-            final currentStatus = item['item_status']?.toString().toUpperCase();
+            var currentStatus = item['item_status']?.toString().toUpperCase();
+            final itemId = (item['item_id'] as num).toInt();
             if (currentStatus == status) continue;
-            await api.putJson(
-              '/api/v1/kitchen-tickets/$kotId/items/${item['item_id']}/status',
-              {'status': status},
-            );
+
+            Future<void> transitionTo(String nextStatus) async {
+              await api.putJson(
+                '/api/v1/kitchen-tickets/$kotId/items/$itemId/status',
+                {'status': nextStatus},
+              );
+              currentStatus = nextStatus;
+            }
+
+            // A ticket can contain a mixture of PENDING and COOKING lines.
+            // The backend requires each line to pass through COOKING before
+            // it can become READY, even when the ticket-level action is bulk.
+            if (status == 'READY' && currentStatus == 'PENDING') {
+              await transitionTo('COOKING');
+            }
+            if (status == 'SERVED' && currentStatus != 'READY') continue;
+            await transitionTo(status);
           }
         }
         await _loadKOTs(silent: true);

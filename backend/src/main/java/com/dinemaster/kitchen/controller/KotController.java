@@ -80,7 +80,7 @@ public class KotController {
     public ResponseEntity<Map<String, Object>> updateItemStatus(@PathVariable Long kotId, @PathVariable Long itemId,
             @Valid @RequestBody KitchenItemStatusRequest request, Authentication authentication) {
         Kot kot = kotRepository.findById(kotId).orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(HttpStatus.NOT_FOUND, "Kitchen ticket not found"));
-        branchScope.requireBranch(authentication, kot.getOrder().getRestaurant().getId());
+        branchScope.requireBranch(authentication, kot.getBranchId());
         OrderItem changed = kitchen.changeItemStatus(kotId, itemId, request.status(), request.reason(), branchScope.requireUser(authentication));
         return ResponseEntity.ok(Map.of("kotId", kotId, "itemId", itemId, "status", changed.getStatus(),
                 "acceptedAt", changed.getAcceptedAt() == null ? "" : changed.getAcceptedAt(),
@@ -92,7 +92,7 @@ public class KotController {
     public ResponseEntity<Void> setPriority(@PathVariable Long kotId, @Valid @RequestBody KitchenPriorityRequest request,
             Authentication authentication) {
         Kot kot = kotRepository.findById(kotId).orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(HttpStatus.NOT_FOUND, "Kitchen ticket not found"));
-        branchScope.requireBranch(authentication, kot.getOrder().getRestaurant().getId());
+        branchScope.requireBranch(authentication, kot.getBranchId());
         kitchen.setPriority(kotId, request.priority(), branchScope.requireUser(authentication));
         return ResponseEntity.noContent().build();
     }
@@ -102,7 +102,7 @@ public class KotController {
     public ResponseEntity<Void> delayReason(@PathVariable Long kotId, @Valid @RequestBody KitchenDelayRequest request,
             Authentication authentication) {
         Kot kot = kotRepository.findById(kotId).orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(HttpStatus.NOT_FOUND, "Kitchen ticket not found"));
-        branchScope.requireBranch(authentication, kot.getOrder().getRestaurant().getId());
+        branchScope.requireBranch(authentication, kot.getBranchId());
         kitchen.recordDelay(kotId, request.reason(), branchScope.requireUser(authentication));
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
@@ -112,7 +112,7 @@ public class KotController {
     public ResponseEntity<Void> assignChef(@PathVariable Long kotId, @Valid @RequestBody AssignChefRequest request,
             Authentication authentication) {
         Kot kot = kotRepository.findById(kotId).orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(HttpStatus.NOT_FOUND, "Kitchen ticket not found"));
-        branchScope.requireBranch(authentication, kot.getOrder().getRestaurant().getId());
+        branchScope.requireBranch(authentication, kot.getBranchId());
         kitchen.assignChef(kotId, request.chefId(), branchScope.requireUser(authentication));
         return ResponseEntity.noContent().build();
     }
@@ -121,7 +121,7 @@ public class KotController {
     @PreAuthorize("hasAuthority('kot:view')")
     public List<Map<String, Object>> delayHistory(@PathVariable Long kotId, Authentication authentication) {
         Kot kot = kotRepository.findById(kotId).orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(HttpStatus.NOT_FOUND, "Kitchen ticket not found"));
-        branchScope.requireBranch(authentication, kot.getOrder().getRestaurant().getId());
+        branchScope.requireBranch(authentication, kot.getBranchId());
         return kitchen.delayHistory(kotId);
     }
 

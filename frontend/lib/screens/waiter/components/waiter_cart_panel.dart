@@ -289,7 +289,7 @@ class WaiterCartPanel extends StatelessWidget {
                 ? null
                 : onSendKOT,
             icon: const Icon(Icons.kitchen),
-            label: const Text('Send Order to Kitchen'),
+            label: const Text('Place Order'),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.orange,
               foregroundColor: Colors.white,

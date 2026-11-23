@@ -35,8 +35,9 @@ public class TableWorkflowService {
         DiningTable table = tables.findForUpdateById(tableId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Table not found"));
         if ("BILL_REQUESTED".equalsIgnoreCase(table.getStatus())) return;
-        if (!"SERVED".equalsIgnoreCase(table.getStatus()))
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Table must be SERVED before bill request");
+        if (!Set.of("OCCUPIED", "ORDERING", "FOOD_PENDING", "PREPARING", "SERVED")
+                .contains(table.getStatus().toUpperCase(Locale.ROOT)))
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Table must have an active order before bill request");
         setStatus(table, "BILL_REQUESTED", actorId, "Waiter requested bill");
     }
     private void setStatus(DiningTable table, String next, Long actorId, String reason) {

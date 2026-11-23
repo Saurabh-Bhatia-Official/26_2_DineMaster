@@ -108,7 +108,10 @@ public class KitchenService {
 
     @Transactional
     public void assignChef(Long kotId, Long chefId, User actor) {
-        requireManager(actor);
+        // Waiters can choose a chef while placing an order in the waiter flow.
+        // The controller has already constrained the request to the actor's branch.
+        if (!isManager(actor) && !com.dinemaster.role.Roles.matches(actor.getRole(), "WAITER"))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Waiter or manager permission is required");
         Kot kot = requireKot(kotId);
         User chef = users.findById(chefId).filter(User::isActive)
                 .filter(u -> com.dinemaster.role.Roles.matches(u.getRole(), "CHEF"))
