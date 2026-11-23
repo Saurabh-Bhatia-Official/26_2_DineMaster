@@ -12,7 +12,6 @@ import '../repositories/table_repository.dart';
 import '../repositories/order_api_repository.dart';
 import '../models/order_model.dart';
 import '../services/sync_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'pdf_preview_screen.dart';
 
 class OrdersHistoryScreen extends StatefulWidget {

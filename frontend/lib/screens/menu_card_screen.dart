@@ -184,7 +184,6 @@ class _MenuCardScreenState extends State<MenuCardScreen> {
       ),
       body: Column(
         children: [
-          _buildHeader(filtered.length),
           _buildCategoryBar(),
           _buildLegend(),
           Expanded(
@@ -213,93 +212,6 @@ class _MenuCardScreenState extends State<MenuCardScreen> {
                           );
                         },
                       ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeader(int itemCount) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [AppColors.primary, Color(0xFF0E2A54)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primary.withAlpha(60),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(20),
-              shape: BoxShape.circle,
-              border: Border.all(color: AppColors.secondary, width: 1.2),
-            ),
-            child: const Icon(Icons.menu_book_rounded, color: AppColors.secondary, size: 26),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'CULINARY SELECTIONS',
-                  style: TextStyle(
-                    color: AppColors.secondary,
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 2,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                const Text(
-                  'Dine Master Menu',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.3,
-                  ),
-                ),
-                Text(
-                  'Browse our curated dishes',
-                  style: TextStyle(color: Colors.white.withAlpha(180), fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(22),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white.withAlpha(35)),
-            ),
-            child: Column(
-              children: [
-                Text(
-                  '$itemCount',
-                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  'Dishes',
-                  style: TextStyle(color: Colors.white.withAlpha(180), fontSize: 10),
-                ),
-              ],
-            ),
           ),
         ],
       ),

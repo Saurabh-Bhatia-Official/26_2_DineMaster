@@ -2779,17 +2779,17 @@ class _TablesScreenState extends State<TablesScreen> {
                   )
                 : GridView.builder(
                     padding: EdgeInsets.fromLTRB(
-                      compact ? 14 : 22,
+                      compact ? 12 : 18,
                       2,
-                      compact ? 14 : 22,
-                      24,
+                      compact ? 12 : 18,
+                      16,
                     ),
                     gridDelegate:
                         const SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 390,
-                          mainAxisExtent: 286,
-                          crossAxisSpacing: 13,
-                          mainAxisSpacing: 13,
+                          maxCrossAxisExtent: 350,
+                          mainAxisExtent: 250,
+                          crossAxisSpacing: 10,
+                          mainAxisSpacing: 10,
                         ),
                     itemCount: filtered.length,
                     itemBuilder: (context, index) =>
@@ -2997,8 +2997,8 @@ class _TablesScreenState extends State<TablesScreen> {
                 // Header Bar (Overflow-safe)
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
+                    horizontal: 10,
+                    vertical: 6,
                   ),
                   color: statusColor.withValues(alpha: .09),
                   child: Row(
@@ -3071,8 +3071,8 @@ class _TablesScreenState extends State<TablesScreen> {
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 12.0,
-                      vertical: 8.0,
+                      horizontal: 10.0,
+                      vertical: 6.0,
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
