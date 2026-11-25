@@ -1,4 +1,3 @@
-import 'network_http.dart';
 import 'package:sqflite/sqflite.dart';
 
 class NetworkDatabase implements Database {
@@ -8,8 +7,10 @@ class NetworkDatabase implements Database {
   NetworkDatabase({required this.serverIp, this.port = 8082});
 
   Future<dynamic> _post(String endpoint, Map<String, dynamic> body) async {
-    final url = 'http://$serverIp:$port$endpoint';
-    return await sendNetworkRequest(url, body);
+    throw UnsupportedError(
+      'CLIENT_UPGRADE_REQUIRED: generic network SQL access has been disabled. '
+      'Use a supported authenticated Edge client.',
+    );
   }
 
   @override

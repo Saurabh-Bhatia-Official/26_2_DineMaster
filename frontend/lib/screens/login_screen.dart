@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -118,32 +116,14 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      final db = await DatabaseHelper.instance.database;
-      final users = await db.query(
-        'users',
-        where: 'username = ? AND password = ? AND role = ? AND is_active = 1',
-        whereArgs: [
-          username,
-          DatabaseHelper.hashPassword(password),
-          _selectedRole,
-        ],
-      );
-      if (!mounted) return;
-      if (users.isEmpty) {
+      await prefs.remove('token');
+      await prefs.remove('flutter.token');
+      if (mounted) {
         setState(
           () => _loginError =
-              'Invalid email or password. Check your details and try again.',
+              'Offline sign-in is unavailable until this device has a valid signed Edge grant.',
         );
-        return;
       }
-      final sessionToken = base64Url.encode(
-        utf8.encode('$username:${DateTime.now().millisecondsSinceEpoch}'),
-      );
-      await prefs.setString('token', sessionToken);
-      await prefs.setString('username', username);
-      await prefs.setString('role', _selectedRole);
-      await prefs.setBool('remember_me', _rememberMe);
-      if (mounted) context.go('/branch_selection');
     } on BackendApiException catch (error) {
       if (!mounted) return;
       setState(
@@ -691,20 +671,6 @@ class _LoginScreenState extends State<LoginScreen> {
       borderSide: const BorderSide(color: Color(0xFFD65A4A), width: 1.4),
     ),
   );
-
-  String _normalizeRole(String role) {
-    final normalized = role
-        .trim()
-        .toLowerCase()
-        .replaceAll(RegExp(r'[\s-]+'), '_')
-        .replaceFirst(RegExp(r'^role_'), '');
-    return switch (normalized) {
-      'restaurant_admin' || 'admin' => 'owner',
-      'cook' => 'chef',
-      'employee' || 'other_staff' => 'staff',
-      _ => normalized,
-    };
-  }
 
   void _showRegisterDialog() {
     final nameController = TextEditingController();

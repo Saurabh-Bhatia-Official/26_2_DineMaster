@@ -156,6 +156,12 @@ class ProductModel {
     return [];
   }
 
+  static int? _parseOptionalInt(dynamic value) {
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value.trim());
+    return null;
+  }
+
   factory ProductModel.fromMap(Map<String, dynamic> map) {
     final vegValue = map['is_veg'] ?? map['veg'];
     final availableValue = map['is_available'] ?? map['available'];
@@ -173,9 +179,9 @@ class ProductModel {
       imagePath: map['image_path'] ?? map['imagePath'],
       isAvailable: availableValue == 1 || availableValue == true,
       recipeSteps: map['recipe_steps'] ?? map['recipeSteps'],
-      prepTime: (map['prep_time'] ?? map['prepTime']) as int?,
-      cookTime: (map['cook_time'] ?? map['cookTime']) as int?,
-      servings: map['servings'],
+      prepTime: _parseOptionalInt(map['prep_time'] ?? map['prepTime']),
+      cookTime: _parseOptionalInt(map['cook_time'] ?? map['cookTime']),
+      servings: _parseOptionalInt(map['servings']),
       difficulty: map['difficulty'],
       videoPath: map['video_path'] ?? map['videoPath'],
       gstPercentage: (map['gst_percentage'] ?? map['gstPercentage']) is num

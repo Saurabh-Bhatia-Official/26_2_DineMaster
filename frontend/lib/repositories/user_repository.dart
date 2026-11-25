@@ -40,7 +40,9 @@ class UserRepository {
         if (rawPermissions is List) {
           await prefs.setString(
             'permissions',
-            jsonEncode(rawPermissions.map((value) => value.toString()).toList()),
+            jsonEncode(
+              rawPermissions.map((value) => value.toString()).toList(),
+            ),
           );
         } else {
           await prefs.remove('permissions');
@@ -51,19 +53,9 @@ class UserRepository {
       }
     }
 
-    final db = await _dbHelper.database;
-    final hashedPassword = DatabaseHelper.hashPassword(password);
-    final maps = await db.query(
-      'users',
-      where: 'username = ? AND password = ? AND is_active = 1',
-      whereArgs: [username, hashedPassword],
+    throw UnsupportedError(
+      'Offline sign-in requires a valid signed Edge grant. Local password hashes are not authorization credentials.',
     );
-    if (maps.isEmpty) return null;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('username', maps.first['username']?.toString() ?? '');
-    await prefs.setString('role', maps.first['role']?.toString() ?? '');
-    await prefs.remove('permissions');
-    return UserModel.fromMap(maps.first);
   }
 
   Future<List<UserModel>> getUsers() async {
@@ -146,7 +138,12 @@ class UserRepository {
   Future<void> reactivateUser(int id, {String? reason}) async {
     if (!await _useBackendApi()) {
       final db = await _dbHelper.database;
-      await db.update('users', {'is_active': 1}, where: 'id = ?', whereArgs: [id]);
+      await db.update(
+        'users',
+        {'is_active': 1},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
       return;
     }
     await _apiClient.postJson('/api/v1/users/$id/reactivate', {
@@ -250,4 +247,3 @@ class UserRepository {
     if (user.branchIds.isNotEmpty) 'branchIds': user.branchIds,
   };
 }
-

@@ -47,14 +47,11 @@ class _SplashScreenState extends State<SplashScreen> {
   Future<void> _navigateNext() async {
     final prefs = await SharedPreferences.getInstance();
     final rememberMe = prefs.getBool('remember_me') ?? false;
-    var token = await AuthTokenStorage.readAccessToken();
-    if (token == null || token.isEmpty) {
-      token = prefs.getString('token');
-      if (token != null && token.isNotEmpty) {
-        await AuthTokenStorage.save(accessToken: token);
-        await prefs.remove('token');
-      }
-    }
+    final token = await AuthTokenStorage.readAccessToken();
+    // Retire legacy SharedPreferences bearer values, including unsigned
+    // base64 local session markers. They are not authentication credentials.
+    await prefs.remove('token');
+    await prefs.remove('flutter.token');
     final hasToken = rememberMe && (token != null && token.isNotEmpty);
 
     if (!mounted) return;

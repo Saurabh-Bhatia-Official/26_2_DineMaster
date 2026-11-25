@@ -32,6 +32,8 @@ public class SecurityConfig {
     private final ObjectMapper objectMapper;
     @Value("${dinemaster.guest.allowed-origin:}")
     private String guestAllowedOrigin;
+    @Value("${dinemaster.edge-authoritative-mode:false}")
+    private boolean edgeAuthoritativeMode;
 
     public SecurityConfig(JwtAuthenticationFilter jwtFilter, ObjectMapper objectMapper) {
         this.jwtFilter = jwtFilter;
@@ -83,6 +85,7 @@ public class SecurityConfig {
                 .formLogin(form -> form.disable());
 
         http.addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
+        http.addFilterBefore(new EdgeOperationalWriteGuard(edgeAuthoritativeMode), JwtAuthenticationFilter.class);
         return http.build();
     }
 

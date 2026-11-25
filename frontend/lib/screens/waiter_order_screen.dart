@@ -394,38 +394,42 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
       'VOIDED',
       'BILLED',
     };
-    final orderMaps = orders.where((order) {
-      final status = order.status.toUpperCase();
-      return !terminalOrderStatuses.contains(status) &&
-          order.paymentStatus.toUpperCase() != 'PAID';
-    }).map((order) {
-      final map = order.toMap();
-      final orderTable = _firstOrNull(
-        tables.where((table) => table.id == order.tableId),
-      );
-      map['order_taker_name'] = order.orderTakerName ?? 'Waiter';
-      map['table_number'] = orderTable?.tableNumber;
-      map['table_name'] = orderTable?.name;
-      final ticketStatuses = (ticketsByOrder[order.id] ?? [])
-          .map((ticket) => ticket['status']?.toString().toUpperCase())
-          .whereType<String>()
-          .toList();
-      if (order.status.toUpperCase() == 'BILL_REQUESTED' ||
-          orderTable?.status.toUpperCase() == 'BILL_REQUESTED') {
-        map['status'] = 'Billing Pending';
-      } else if (ticketStatuses.contains('READY')) {
-        map['status'] = 'Ready';
-      } else if (ticketStatuses.contains('COOKING')) {
-        map['status'] = 'Preparing';
-      } else if (ticketStatuses.isNotEmpty &&
-          ticketStatuses.every((status) =>
-              status == 'SERVED' || status == 'CANCELLED')) {
-        map['status'] = 'Served';
-      } else {
-        map['status'] = _waiterDisplayOrderStatus(order.status);
-      }
-      return map;
-    }).toList();
+    final orderMaps = orders
+        .where((order) {
+          final status = order.status.toUpperCase();
+          return !terminalOrderStatuses.contains(status) &&
+              order.paymentStatus.toUpperCase() != 'PAID';
+        })
+        .map((order) {
+          final map = order.toMap();
+          final orderTable = _firstOrNull(
+            tables.where((table) => table.id == order.tableId),
+          );
+          map['order_taker_name'] = order.orderTakerName ?? 'Waiter';
+          map['table_number'] = orderTable?.tableNumber;
+          map['table_name'] = orderTable?.name;
+          final ticketStatuses = (ticketsByOrder[order.id] ?? [])
+              .map((ticket) => ticket['status']?.toString().toUpperCase())
+              .whereType<String>()
+              .toList();
+          if (order.status.toUpperCase() == 'BILL_REQUESTED' ||
+              orderTable?.status.toUpperCase() == 'BILL_REQUESTED') {
+            map['status'] = 'Billing Pending';
+          } else if (ticketStatuses.contains('READY')) {
+            map['status'] = 'Ready';
+          } else if (ticketStatuses.contains('COOKING')) {
+            map['status'] = 'Preparing';
+          } else if (ticketStatuses.isNotEmpty &&
+              ticketStatuses.every(
+                (status) => status == 'SERVED' || status == 'CANCELLED',
+              )) {
+            map['status'] = 'Served';
+          } else {
+            map['status'] = _waiterDisplayOrderStatus(order.status);
+          }
+          return map;
+        })
+        .toList();
 
     final now = DateTime.now();
     final sections = <String>{'All'};
@@ -465,12 +469,14 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
           }
         }
       }
-      enrichedTables.add(WaiterTableInfo(
-        table: table,
-        activeOrder: activeOrder,
-        activeBooking: activeBooking,
-        orderItemsCount: itemCount,
-      ));
+      enrichedTables.add(
+        WaiterTableInfo(
+          table: table,
+          activeOrder: activeOrder,
+          activeBooking: activeBooking,
+          orderItemsCount: itemCount,
+        ),
+      );
     }
 
     final products = await _productRepository.getProducts();
@@ -508,7 +514,9 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
       _products = products.where((product) => product.isAvailable).toList();
       _categories = {
         'All',
-        ..._products.map((product) => product.category).where((c) => c.isNotEmpty),
+        ..._products
+            .map((product) => product.category)
+            .where((c) => c.isNotEmpty),
       }.toList();
       _chefsList = allUsers.where((user) {
         return RoleNames.canonical(user['role']?.toString() ?? '') == 'CHEF';
@@ -518,18 +526,14 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
       _showChefAssignment = assignmentSettings['show_chef_assignment']!;
       if (username != null && _selectedWaiterId == null) {
         final matchingWaiter = _firstOrNull(
-          waiters.where(
-            (waiter) => waiter['username']?.toString() == username,
-          ),
+          waiters.where((waiter) => waiter['username']?.toString() == username),
         );
         _selectedWaiterId = (matchingWaiter?['id'] as num?)?.toInt();
         _selectedWaiterName = matchingWaiter?['name']?.toString();
       }
       if (_selectedTableId != null) {
         final matchingTable = _firstOrNull(
-          enrichedTables.where(
-            (info) => info.table.id == _selectedTableId,
-          ),
+          enrichedTables.where((info) => info.table.id == _selectedTableId),
         );
         if (matchingTable != null) {
           _selectedTableDisplayName = matchingTable.displayNameForOrder;
@@ -583,11 +587,11 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
   }
 
   bool _canRequestBillForStatus(Object? status) => const {
-        'SENT TO KITCHEN',
-        'PREPARING',
-        'READY',
-        'SERVED',
-      }.contains(status?.toString().trim().toUpperCase());
+    'SENT TO KITCHEN',
+    'PREPARING',
+    'READY',
+    'SERVED',
+  }.contains(status?.toString().trim().toUpperCase());
 
   T? _firstOrNull<T>(Iterable<T> values) {
     for (final value in values) {
@@ -1025,6 +1029,8 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
       final db = await DatabaseHelper.instance.database;
       final restaurantId = DatabaseHelper.currentRestaurantId;
       final String now = DateTime.now().toIso8601String();
+      final prefs = await SharedPreferences.getInstance();
+      final username = prefs.getString('username') ?? 'Waiter';
 
       // All order-related database operations use the same executor.
       Future<int> persistOrder(DatabaseExecutor executor) async {
@@ -1080,9 +1086,6 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
           final double subtotal = _calculateSubtotal();
           final double tax = _calculateTax();
           final double total = subtotal + tax;
-
-          final prefs = await SharedPreferences.getInstance();
-          final username = prefs.getString('username') ?? 'Waiter';
 
           final userList = await executor.query(
             'users',
@@ -1234,14 +1237,16 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
         for (final rawTicket in response.whereType<Map>()) {
           final ticket = Map<String, dynamic>.from(rawTicket);
           if ((ticket['orderId'] as num?)?.toInt() != orderId) continue;
-          final kotId = (ticket['kotId'] as num?)?.toInt() ??
+          final kotId =
+              (ticket['kotId'] as num?)?.toInt() ??
               (ticket['id'] as num?)?.toInt();
           final rawItems = ticket['items'];
           if (kotId == null || rawItems is! List) continue;
           for (final rawItem in rawItems.whereType<Map>()) {
             final item = Map<String, dynamic>.from(rawItem);
             if (item['status']?.toString().toUpperCase() != 'READY') continue;
-            final itemId = (item['itemId'] as num?)?.toInt() ??
+            final itemId =
+                (item['itemId'] as num?)?.toInt() ??
                 (item['orderItemId'] as num?)?.toInt();
             if (itemId == null) continue;
             await api.putJson(
@@ -1591,9 +1596,7 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
             icon: Icon(
               _isTakingOrder ? Icons.arrow_back : Icons.add_shopping_cart,
             ),
-            label: Text(
-              _isTakingOrder ? 'Back to Orders' : 'Start New Order',
-            ),
+            label: Text(_isTakingOrder ? 'Back to Orders' : 'Start New Order'),
             style: ElevatedButton.styleFrom(
               backgroundColor: _isTakingOrder
                   ? Colors.grey.shade700
@@ -1612,10 +1615,7 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
                 Expanded(
                   child: TabBarView(
                     controller: _tabController,
-                    children: [
-                      _buildFloorPlanTab(),
-                      _buildKitchenOrdersTab(),
-                    ],
+                    children: [_buildFloorPlanTab(), _buildKitchenOrdersTab()],
                   ),
                 ),
               ],
@@ -1900,20 +1900,20 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
                     ),
                     if (!_backendMode)
                       ElevatedButton.icon(
-                      icon: const Icon(Icons.move_down, size: 16),
-                      label: const Text('Transfer'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.indigo,
-                        foregroundColor: Colors.white,
-                      ),
-                      onPressed: () {
-                        Navigator.pop(context);
-                        _showTransferTableDialog(
-                          orderId,
-                          table.id!,
-                          table.displayName,
-                        );
-                      },
+                        icon: const Icon(Icons.move_down, size: 16),
+                        label: const Text('Transfer'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.indigo,
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _showTransferTableDialog(
+                            orderId,
+                            table.id!,
+                            table.displayName,
+                          );
+                        },
                       ),
                     if (_canRequestBillForStatus(orderStatus))
                       ElevatedButton.icon(
@@ -2293,7 +2293,11 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
     final billOrder = _firstOrNull(
       orders.where((order) => _canRequestBillForStatus(order['status'])),
     );
-    final currentStep = hasBillRequested ? 3 : billOrder != null ? 2 : 1;
+    final currentStep = hasBillRequested
+        ? 3
+        : billOrder != null
+        ? 2
+        : 1;
     const steps = [
       ('1', 'Take order'),
       ('2', 'Request bill'),
@@ -2325,10 +2329,17 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
                   if (i > 0)
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 6),
-                      child: Icon(Icons.chevron_right, size: 16, color: Colors.grey.shade500),
+                      child: Icon(
+                        Icons.chevron_right,
+                        size: 16,
+                        color: Colors.grey.shade500,
+                      ),
                     ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: i + 1 == currentStep
                           ? AppColors.primary.withValues(alpha: 0.12)
@@ -2377,9 +2388,11 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
                     )
                   : hasBillRequested
                   ? () {
-                      final order = _firstOrNull(orders.where(
-                        (item) => item['status'] == 'Billing Pending',
-                      ));
+                      final order = _firstOrNull(
+                        orders.where(
+                          (item) => item['status'] == 'Billing Pending',
+                        ),
+                      );
                       if (order != null) {
                         context.go('/dashboard/pos?orderId=${order['id']}');
                       }
@@ -2447,99 +2460,100 @@ class _WaiterOrderScreenState extends State<WaiterOrderScreen>
         Expanded(
           child: Row(
             children: [
-        // Left Side: Catalog
-        Expanded(
-          flex: 5,
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: TextField(
-                  decoration: InputDecoration(
-                    hintText: 'Search Menu Item...',
-                    prefixIcon: const Icon(Icons.search),
-                    fillColor: Colors.white,
-                    filled: true,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                  onChanged: (val) {
-                    setState(() => _searchQuery = val);
-                  },
-                ),
-              ),
+              // Left Side: Catalog
               Expanded(
-                child: WaiterMenuView(
-                  categories: _categories,
-                  selectedCategory: _selectedCategory,
-                  onCategorySelected: (cat) =>
-                      setState(() => _selectedCategory = cat),
-                  filteredProducts: filteredProducts,
-                  cartItems: _cartItems,
-                  onProductTap: _handleProductTap,
+                flex: 5,
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: TextField(
+                        decoration: InputDecoration(
+                          hintText: 'Search Menu Item...',
+                          prefixIcon: const Icon(Icons.search),
+                          fillColor: Colors.white,
+                          filled: true,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                        onChanged: (val) {
+                          setState(() => _searchQuery = val);
+                        },
+                      ),
+                    ),
+                    Expanded(
+                      child: WaiterMenuView(
+                        categories: _categories,
+                        selectedCategory: _selectedCategory,
+                        onCategorySelected: (cat) =>
+                            setState(() => _selectedCategory = cat),
+                        filteredProducts: filteredProducts,
+                        cartItems: _cartItems,
+                        onProductTap: _handleProductTap,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
-        ),
 
-        // Right Side: Cart Panel
-        Expanded(
-          flex: 3,
-          child: WaiterCartPanel(
-            orderType: _orderType,
-            selectedTableDisplayName: _selectedTableDisplayName,
-            selectedTableId: _selectedTableId,
-            tableInfoList: _tableInfoList,
-            cartItems: _cartItems,
-            customerNameController: _customerNameController,
-            customerPhoneController: _customerPhoneController,
-            waitersList: _waitersList,
-            chefsList: _chefsList,
-            selectedWaiterId: _selectedWaiterId,
-            selectedChefId: _selectedChefId,
-            onWaiterSelected: (id, name) => setState(() {
-              _selectedWaiterId = id;
-              _selectedWaiterName = name;
-            }),
-            onChefSelected: (id, name) => setState(() {
-              _selectedChefId = id;
-              _selectedChefName = name;
-            }),
-            showWaiterAssignment: _showWaiterAssignment,
-            showChefAssignment: _showChefAssignment,
-            onOrderTypeChanged: (val) {
-              setState(() {
-                _orderType = val;
-                if (_orderType != 'Dine-In') {
-                  _selectedTableId = null;
-                  _selectedTableDisplayName = 'Takeaway';
-                }
-              });
-            },
-            onTableSelected: (tableId) {
-              setState(() {
-                _selectedTableId = tableId;
-                if (tableId != null) {
-                  final tableInfo = _tableInfoList.firstWhere(
-                    (t) => t.table.id == tableId,
-                    orElse: () => _tableInfoList.first,
-                  );
-                  _selectedTableDisplayName = tableInfo.displayNameForOrder;
-                  _orderType = 'Dine-In';
-                  _currentOrderGuestCount = tableInfo.combinedCapacity;
-                }
-              });
-            },
-            onDecrementCart: _decrementCart,
-            onRemoveCartItem: _removeCartItem,
-            onEditCartItem: _editCartItem,
-            onClearCart: () => setState(() => _cartItems.clear()),
-            onSendKOT: _submitWaiterOrder,
-          ),
-        ),
+              // Right Side: Cart Panel
+              Expanded(
+                flex: 3,
+                child: WaiterCartPanel(
+                  orderType: _orderType,
+                  selectedTableDisplayName: _selectedTableDisplayName,
+                  selectedTableId: _selectedTableId,
+                  tableInfoList: _tableInfoList,
+                  cartItems: _cartItems,
+                  customerNameController: _customerNameController,
+                  customerPhoneController: _customerPhoneController,
+                  waitersList: _waitersList,
+                  chefsList: _chefsList,
+                  selectedWaiterId: _selectedWaiterId,
+                  selectedChefId: _selectedChefId,
+                  onWaiterSelected: (id, name) => setState(() {
+                    _selectedWaiterId = id;
+                    _selectedWaiterName = name;
+                  }),
+                  onChefSelected: (id, name) => setState(() {
+                    _selectedChefId = id;
+                    _selectedChefName = name;
+                  }),
+                  showWaiterAssignment: _showWaiterAssignment,
+                  showChefAssignment: _showChefAssignment,
+                  onOrderTypeChanged: (val) {
+                    setState(() {
+                      _orderType = val;
+                      if (_orderType != 'Dine-In') {
+                        _selectedTableId = null;
+                        _selectedTableDisplayName = 'Takeaway';
+                      }
+                    });
+                  },
+                  onTableSelected: (tableId) {
+                    setState(() {
+                      _selectedTableId = tableId;
+                      if (tableId != null) {
+                        final tableInfo = _tableInfoList.firstWhere(
+                          (t) => t.table.id == tableId,
+                          orElse: () => _tableInfoList.first,
+                        );
+                        _selectedTableDisplayName =
+                            tableInfo.displayNameForOrder;
+                        _orderType = 'Dine-In';
+                        _currentOrderGuestCount = tableInfo.combinedCapacity;
+                      }
+                    });
+                  },
+                  onDecrementCart: _decrementCart,
+                  onRemoveCartItem: _removeCartItem,
+                  onEditCartItem: _editCartItem,
+                  onClearCart: () => setState(() => _cartItems.clear()),
+                  onSendKOT: _submitWaiterOrder,
+                ),
+              ),
             ],
           ),
         ),

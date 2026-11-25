@@ -26,6 +26,7 @@ import 'screens/live_tracking_screen.dart';
 import 'screens/customers_screen.dart';
 import 'screens/waiter_order_screen.dart';
 import 'services/server_service.dart';
+import 'services/sync_engine.dart';
 import 'services/sync_service.dart';
 
 final themeNotifier = ValueNotifier<ThemeMode>(ThemeMode.light);
@@ -42,6 +43,7 @@ void main() async {
   // Browsers do not support Dart's InternetAddress.anyIPv4 server.
   if (!kIsWeb) {
     await ServerService.instance.startServer();
+    await SyncEngine.instance.start();
     await SyncService.instance.initConnection();
   }
 

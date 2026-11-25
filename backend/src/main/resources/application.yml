@@ -2,6 +2,11 @@ server:
   port: ${SERVER_PORT:8081}
 
 dinemaster:
+  edge-authoritative-mode: ${EDGE_AUTHORITATIVE_MODE:false}
+  edge-control-plane-enabled: ${EDGE_CONTROL_PLANE_ENABLED:false}
+  edge-jwt-private-key-pem: ${EDGE_JWT_PRIVATE_KEY_PEM:}
+  edge-jwt-public-key-pem: ${EDGE_JWT_PUBLIC_KEY_PEM:}
+  sync-enabled: ${M28_SYNC_ENABLED:false}
   guest:
     menu-base-url: ${GUEST_MENU_BASE_URL:/#/guest-menu}
     allowed-origin: ${GUEST_ALLOWED_ORIGIN:}

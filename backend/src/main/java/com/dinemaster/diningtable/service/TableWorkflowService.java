@@ -31,6 +31,16 @@ public class TableWorkflowService {
         setStatus(table, "SERVED", actorId, "All order items served or cancelled");
     }
     @Transactional
+    public void releaseTableIfNoOpenOrders(Long orderId, Long actorId) {
+        var order = orders.findById(orderId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found"));
+        if (order.getDiningTable() == null) return;
+        Long tableId = order.getDiningTable().getId();
+        if (orders.countOpenOrdersForTable(tableId) > 0) return;
+        DiningTable table = tables.findForUpdateById(tableId).orElseThrow();
+        setStatus(table, "AVAILABLE", actorId, "All table orders are paid or closed");
+    }
+    @Transactional
     public void requestBill(Long tableId, Long actorId) {
         DiningTable table = tables.findForUpdateById(tableId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Table not found"));

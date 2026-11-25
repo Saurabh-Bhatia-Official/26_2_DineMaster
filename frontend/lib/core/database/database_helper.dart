@@ -9,6 +9,7 @@ import '../platform/sqlite_ffi.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'network_database.dart';
+import 'm28_sqlite_migration.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
@@ -88,14 +89,26 @@ class DatabaseHelper {
       }
     } catch (_) {}
 
+    // Preserve a consistent, verified copy before applying the additive M28
+    // schema to an existing local database. If the backup fails, opening and
+    // migrating the live database is stopped.
+    await M28SqliteMigration.backupBeforeUpgrade(path);
+
     final db = await openDatabase(
       path,
-      version: 7,
+      version: 8,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
     await db.execute('PRAGMA foreign_keys = ON;');
     await _ensureTablesExist(db);
+    // _onUpgrade runs in sqflite's upgrade transaction, but the repeatable
+    // pass after _ensureTablesExist runs after openDatabase has returned.
+    // Keep that pass atomic so a process interruption cannot leave a partial
+    // M28 schema marked at database version 8.
+    await db.transaction((txn) async {
+      await M28SqliteMigration.apply(txn);
+    });
     await _sanitizeTableStatuses(db);
     // Only remove dummy data on fresh setup, never on subsequent launches
     // to avoid accidentally deleting user-created data that matches dummy names
@@ -492,6 +505,10 @@ class DatabaseHelper {
       } catch (e) {
         // Column might already exist
       }
+    }
+
+    if (oldVersion < 8) {
+      await M28SqliteMigration.apply(db);
     }
   }
 

@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
@@ -88,16 +88,7 @@ class BackendApiClient {
     String path, {
     String? etag,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
-    var token = await AuthTokenStorage.readAccessToken();
-    if (token == null || token.isEmpty) {
-      token = prefs.getString('token') ?? prefs.getString('flutter.token');
-      if (token != null && token.isNotEmpty) {
-        await AuthTokenStorage.save(accessToken: token);
-        await prefs.remove('token');
-        await prefs.remove('flutter.token');
-      }
-    }
+    final token = await AuthTokenStorage.readAccessToken();
     final headers = etag == null ? null : {'If-None-Match': etag};
     var response = await _send('GET', path, null, token, extraHeaders: headers);
     if (response.statusCode == 401 &&
@@ -151,20 +142,22 @@ class BackendApiClient {
     if (token != null && token.isNotEmpty) {
       request.headers['Authorization'] = 'Bearer $token';
     }
-    request.files.add(http.MultipartFile.fromString(
-      'product',
-      jsonEncode(fields),
-      contentType: MediaType('application', 'json'),
-    ));
-    request.files.add(http.MultipartFile.fromBytes(
-      fileField,
-      fileBytes,
-      filename: fileName,
-    ));
+    request.files.add(
+      http.MultipartFile.fromString(
+        'product',
+        jsonEncode(fields),
+        contentType: MediaType('application', 'json'),
+      ),
+    );
+    request.files.add(
+      http.MultipartFile.fromBytes(fileField, fileBytes, filename: fileName),
+    );
 
     final client = http.Client();
     try {
-      final streamed = await client.send(request).timeout(const Duration(seconds: 30));
+      final streamed = await client
+          .send(request)
+          .timeout(const Duration(seconds: 30));
       return _decodeResponse(await http.Response.fromStream(streamed));
     } finally {
       client.close();
@@ -193,17 +186,7 @@ class BackendApiClient {
     dynamic body,
     Map<String, String>? extraHeaders,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
-    var token = await AuthTokenStorage.readAccessToken();
-    // Migrate tokens from older releases once, then remove the insecure copy.
-    if (token == null || token.isEmpty) {
-      token = prefs.getString('token') ?? prefs.getString('flutter.token');
-      if (token != null && token.isNotEmpty) {
-        await AuthTokenStorage.save(accessToken: token);
-        await prefs.remove('token');
-        await prefs.remove('flutter.token');
-      }
-    }
+    final token = await AuthTokenStorage.readAccessToken();
 
     final response = await _send(
       method,
@@ -299,11 +282,10 @@ class BackendApiClient {
       final errorBody = decoded is Map
           ? Map<String, dynamic>.from(decoded)
           : <String, dynamic>{};
-      final message = (errorBody['message'] ??
-              errorBody['error'] ??
-              errorBody['detail'])
-          ?.toString()
-          .trim();
+      final message =
+          (errorBody['message'] ?? errorBody['error'] ?? errorBody['detail'])
+              ?.toString()
+              .trim();
       final details = errorBody['details'];
       final fieldErrors = <String, dynamic>{};
       if (details is Map) {

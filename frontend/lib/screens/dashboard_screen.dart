@@ -11,6 +11,7 @@ import '../repositories/restaurant_repository.dart';
 import '../repositories/notification_repository.dart';
 import '../repositories/user_repository.dart';
 import '../services/backend_api_client.dart';
+import '../services/sync_engine.dart';
 import '../widgets/notification_inbox_sheet.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -574,6 +575,59 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                   ),
                   actions: [
+                    ValueListenableBuilder<M28SyncStatus>(
+                      valueListenable: SyncEngine.instance.status,
+                      builder: (context, status, _) {
+                        if (status == M28SyncStatus.disabled) {
+                          return const SizedBox.shrink();
+                        }
+                        final (icon, color, label) = switch (status) {
+                          M28SyncStatus.notRegistered => (
+                            Icons.devices_other_outlined,
+                            Colors.orange,
+                            'Edge host not registered',
+                          ),
+                          M28SyncStatus.offline => (
+                            Icons.cloud_off_outlined,
+                            Colors.blueGrey,
+                            'Offline; changes remain queued',
+                          ),
+                          M28SyncStatus.idle => (
+                            Icons.cloud_done_outlined,
+                            Colors.green,
+                            'Synchronization current',
+                          ),
+                          M28SyncStatus.syncing => (
+                            Icons.sync,
+                            Colors.blue,
+                            'Synchronization in progress',
+                          ),
+                          M28SyncStatus.authRequired => (
+                            Icons.lock_outline,
+                            Colors.orange,
+                            'Edge host authorization required',
+                          ),
+                          M28SyncStatus.error => (
+                            Icons.error_outline,
+                            Colors.red,
+                            SyncEngine.instance.lastError.value ??
+                                'Synchronization failed; retry is scheduled',
+                          ),
+                          M28SyncStatus.disabled => (
+                            Icons.sync_disabled,
+                            Colors.grey,
+                            'Synchronization disabled',
+                          ),
+                        };
+                        return Tooltip(
+                          message: label,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: Icon(icon, color: color, size: 20),
+                          ),
+                        );
+                      },
+                    ),
                     if (_restaurants.isNotEmpty)
                       Container(
                         margin: const EdgeInsets.symmetric(vertical: 15),

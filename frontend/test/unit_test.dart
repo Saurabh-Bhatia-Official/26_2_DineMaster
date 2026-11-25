@@ -38,6 +38,22 @@ void main() {
       expect(product.hasPreferences, true);
     });
 
+    test('ProductModel tolerates empty optional numeric catalog fields', () {
+      final product = ProductModel.fromMap({
+        'name': 'Catalog item',
+        'price': 25,
+        'category': 'M28 E2E Category',
+        'is_veg': 1,
+        'prep_time': '',
+        'cook_time': '12',
+        'servings': null,
+      });
+
+      expect(product.prepTime, isNull);
+      expect(product.cookTime, 12);
+      expect(product.servings, isNull);
+    });
+
     test('ProductModel toMap converts correctly', () {
       final product = ProductModel(
         id: 2,

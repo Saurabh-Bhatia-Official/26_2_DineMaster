@@ -9,6 +9,7 @@ import com.dinemaster.customer.entity.Customer;
 import com.dinemaster.customer.repository.CustomerRepository;
 import com.dinemaster.diningtable.entity.DiningTable;
 import com.dinemaster.diningtable.repository.DiningTableRepository;
+import com.dinemaster.diningtable.service.TableWorkflowService;
 import com.dinemaster.orders.dto.CreateOrderRequest;
 import com.dinemaster.orders.dto.OrderItemRequest;
 import com.dinemaster.orders.dto.OrderItemResponse;
@@ -45,6 +46,7 @@ public class OrderService {
         private final ProductRepository productRepository;
         private final RestaurantRepository restaurantRepository;
         private final DiningTableRepository diningTableRepository;
+        private final TableWorkflowService tableWorkflow;
         private final CustomerRepository customerRepository;
         private final UserRepository userRepository;
         private final UserBranchRepository userBranches;
@@ -65,12 +67,14 @@ public class OrderService {
                         UserBranchRepository userBranches,
                         KotService kotService,
                         BranchProductRepository branchProducts,
-                        JdbcTemplate jdbc, OrderStateMachine stateMachine, OrderAuditService audit) {
+                        JdbcTemplate jdbc, OrderStateMachine stateMachine, OrderAuditService audit,
+                        TableWorkflowService tableWorkflow) {
                 this.orderRepository = orderRepository;
                 this.orderItemRepository = orderItemRepository;
                 this.productRepository = productRepository;
                 this.restaurantRepository = restaurantRepository;
                 this.diningTableRepository = diningTableRepository;
+                this.tableWorkflow = tableWorkflow;
                 this.customerRepository = customerRepository;
                 this.userRepository = userRepository;
                 this.userBranches = userBranches;
@@ -445,6 +449,7 @@ public class OrderService {
                 order.setPaymentMethod(paymentMethod);
                 String priorStatus = order.getStatus(); order.setStatus("PAID");
                 Order saved = orderRepository.save(order);
+                tableWorkflow.releaseTableIfNoOpenOrders(orderId, null);
                 audit.transition(orderId, "ORDER", orderId, priorStatus, "PAID", null, null, null, null);
                 audit.event(orderId, "order.paid", java.util.Map.of("paymentMethod", paymentMethod));
                 jdbc.update("INSERT INTO recipe_deduction_jobs(order_id) VALUES (?) ON CONFLICT (order_id) DO NOTHING", orderId);
