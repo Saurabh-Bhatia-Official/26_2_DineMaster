@@ -1405,14 +1405,14 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
                     if (dialogContext.mounted) Navigator.pop(dialogContext);
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Branch menu availability saved')),
-                      );
+                      const SnackBar(content: Text('Branch menu availability saved')),
+                    );
                     }
                   } catch (e) {
                     if (dialogContext.mounted) {
                       ScaffoldMessenger.of(dialogContext).showSnackBar(
-                        SnackBar(content: Text('Could not save branch availability: $e')),
-                      );
+                      SnackBar(content: Text('Could not save branch availability: $e')),
+                    );
                     }
                   }
                 },
@@ -1425,8 +1425,8 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not load branch availability: $e')),
-        );
+        SnackBar(content: Text('Could not load branch availability: $e')),
+      );
       }
     }
   }

@@ -318,10 +318,20 @@ public class UserController {
     }
 
     @PostMapping("/{id}/sessions/revoke")
+    @Transactional
+    @PreAuthorize("hasAnyRole('OWNER','MANAGER') and hasAuthority('session:revoke')")
+    public ResponseEntity<?> revokeSessionsPost(@PathVariable Long id, Authentication authentication) {
+        return revokeUserSessions(id, authentication);
+    }
+
     @DeleteMapping("/{id}/sessions")
     @Transactional
     @PreAuthorize("hasAnyRole('OWNER','MANAGER') and hasAuthority('session:revoke')")
-    public ResponseEntity<?> revokeSessions(@PathVariable Long id, Authentication authentication) {
+    public ResponseEntity<?> revokeSessionsDelete(@PathVariable Long id, Authentication authentication) {
+        return revokeUserSessions(id, authentication);
+    }
+
+    private ResponseEntity<?> revokeUserSessions(Long id, Authentication authentication) {
         User user = repository.findById(id).orElse(null);
         if (user == null) return ResponseEntity.notFound().build();
         User actor = branchScope.requireUser(authentication);
@@ -359,11 +369,23 @@ public class UserController {
     }
 
     @PatchMapping("/{id}/branches")
+    @Transactional
+    @PreAuthorize("hasAnyRole('OWNER','MANAGER') and hasAuthority('user:update')")
+    public ResponseEntity<?> assignBranchesPatch(@PathVariable Long id,
+            @Valid @RequestBody UserBranchUpdateRequest request, Authentication authentication) {
+        return assignUserBranches(id, request, authentication);
+    }
+
     @PutMapping("/{id}/branches")
     @Transactional
     @PreAuthorize("hasAnyRole('OWNER','MANAGER') and hasAuthority('user:update')")
-    public ResponseEntity<?> assignBranches(@PathVariable Long id,
+    public ResponseEntity<?> assignBranchesPut(@PathVariable Long id,
             @Valid @RequestBody UserBranchUpdateRequest request, Authentication authentication) {
+        return assignUserBranches(id, request, authentication);
+    }
+
+    private ResponseEntity<?> assignUserBranches(Long id,
+            UserBranchUpdateRequest request, Authentication authentication) {
         User actor = branchScope.requireUser(authentication);
         User target = repository.findById(id).orElse(null);
         if (target == null || !java.util.Objects.equals(target.getTenantId(), actor.getTenantId()))
