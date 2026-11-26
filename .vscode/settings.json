@@ -1,15 +1,27 @@
 {
     "java.configuration.updateBuildConfiguration": "automatic",
-    "java.jdt.ls.java.home": "c:\\Users\\ssbha\\Desktop\\acccount\\26_2_DineMaster\\.venv\\jdk",
-    "java.import.gradle.java.home": "c:\\Users\\ssbha\\Desktop\\acccount\\26_2_DineMaster\\.venv\\jdk",
-    "gradle.java.home": "c:\\Users\\ssbha\\Desktop\\acccount\\26_2_DineMaster\\.venv\\jdk",
+    "java.jdt.ls.java.home": "C:/Program Files/Java/jdk-21",
     "java.configuration.runtimes": [
         {
             "name": "JavaSE-21",
-            "path": "c:\\Users\\ssbha\\Desktop\\acccount\\26_2_DineMaster\\.venv\\jdk",
+            "path": "C:/Program Files/Java/jdk-21",
             "default": true
         }
     ],
+    "dart.flutterSdkPath": "${workspaceFolder}/.venv/flutter",
+    "java.import.maven.enabled": true,
+    "java.import.gradle.enabled": false,
+    "java.import.exclusions": [
+        "**/node_modules/**",
+        "**/.metadata/**",
+        "**/frontend/**"
+    ],
+    "terminal.integrated.env.windows": {
+        "JAVA_HOME": "C:\\Program Files\\Java\\jdk-21",
+        "FLUTTER_ROOT": "${workspaceFolder}\\.venv\\flutter",
+        "PATH": "C:\\Program Files\\Java\\jdk-21\\bin;${workspaceFolder}\\.venv\\flutter\\bin;${workspaceFolder}\\.venv\\flutter\\bin\\cache\\dart-sdk\\bin;${workspaceFolder}\\backend;${workspaceFolder}\\.venv\\Scripts;${env:PATH}"
+    },
     "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
-    "python.terminal.activateEnvironment": true
+    "python.terminal.activateEnvironment": true,
+    "cmake.sourceDirectory": "C:/Users/DELL/OneDrive/Desktop/My C++/Complex Inv/26_2_DineMaster/frontend/linux"
 }

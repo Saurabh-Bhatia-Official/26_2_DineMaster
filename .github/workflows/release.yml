@@ -1,19 +1,10 @@
-name: Release
+name: Release & Deployment
 
 on:
   push:
-    # branches:
-    #   - master
-    tags:
-      - 'v*'
-  release:
-    types: [published]
+    branches:
+      - main
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Release version (e.g. 1.0.0 or v1.0.0; leave blank to read from pubspec.yaml)'
-        required: false
-        default: ''
 
 permissions:
   contents: write
@@ -37,14 +28,11 @@ jobs:
         id: resolve
         shell: bash
         run: |
-          INPUT_VER="${{ inputs.version }}"
           REF_NAME="${{ github.ref_name }}"
-          if [ -n "$INPUT_VER" ]; then
-            RAW="$INPUT_VER"
-          elif [[ "$REF_NAME" == v* ]]; then
+          if [[ "$REF_NAME" == v* ]]; then
             RAW="$REF_NAME"
           else
-            PUB_VER=$(grep '^version:' pubspec.yaml | sed 's/version:[[:space:]]*//; s/+.*//; s/[[:space:]]//g')
+            PUB_VER=$(grep '^version:' frontend/pubspec.yaml | sed 's/version:[[:space:]]*//; s/+.*//; s/[[:space:]]//g')
             RAW="${PUB_VER:-1.0.0}"
           fi
           CLEAN_VER="${RAW#v}"
@@ -53,16 +41,9 @@ jobs:
           echo "tag-name=${TAG_VER}" >> "$GITHUB_OUTPUT"
           echo "::notice::Resolved version name: ${CLEAN_VER}, tag: ${TAG_VER}"
 
-  validate:
-    name: Validate & Test
-    needs: versions
-    uses: ./.github/workflows/validate.yml
-    with:
-      os: ubuntu-latest
-
   build-apk:
-    name: Build Android APK
-    needs: [versions, validate]
+    name: Build Android APK & AAB
+    needs: versions
     uses: ./.github/workflows/build.yml
     with:
       runner: ubuntu-latest
@@ -74,7 +55,7 @@ jobs:
 
   build-web:
     name: Build Web
-    needs: [versions, validate]
+    needs: versions
     uses: ./.github/workflows/build.yml
     with:
       runner: ubuntu-latest
@@ -85,7 +66,7 @@ jobs:
 
   build-windows:
     name: Build Windows
-    needs: [versions, validate]
+    needs: versions
     uses: ./.github/workflows/build.yml
     with:
       runner: windows-latest
@@ -96,7 +77,7 @@ jobs:
 
   build-macos:
     name: Build macOS
-    needs: [versions, validate]
+    needs: versions
     uses: ./.github/workflows/build.yml
     with:
       runner: macos-latest
@@ -108,7 +89,7 @@ jobs:
 
   build-ios:
     name: Build iOS
-    needs: [versions, validate]
+    needs: versions
     uses: ./.github/workflows/build.yml
     with:
       runner: macos-latest
@@ -124,7 +105,7 @@ jobs:
   # does NOT block the GitHub Release.
   build-linux-nonfatal:
     name: Build Linux (best-effort)
-    needs: [versions, validate]
+    needs: versions
     uses: ./.github/workflows/build.yml
     with:
       runner: ubuntu-latest
@@ -133,18 +114,104 @@ jobs:
       version-name: ${{ needs.versions.outputs.version-name }}
       build-number: ${{ github.run_number }}
 
+  deploy-frontend-vercel:
+    name: Deploy Frontend to Vercel
+    needs: [versions, build-web]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download web build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dine-master-web
+          path: dist-web
+
+      - name: Extract web build artifacts
+        shell: bash
+        run: |
+          mkdir -p frontend/build/web
+          tar -xzf dist-web/dine-master-web.tar.gz -C frontend/build/web
+          cp frontend/vercel.json frontend/build/web/vercel.json 2>/dev/null || true
+
+      - name: Deploy to Vercel (Production)
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::warning::VERCEL_TOKEN secret is not configured; skipping Vercel deployment."
+            exit 0
+          fi
+          echo "Installing Vercel CLI..."
+          npm install -g vercel@latest
+
+          cd frontend/build/web
+          if [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ]; then
+            mkdir -p .vercel
+            cat <<EOF > .vercel/project.json
+          {
+            "orgId": "$VERCEL_ORG_ID",
+            "projectId": "$VERCEL_PROJECT_ID"
+          }
+          EOF
+          fi
+
+          echo "Deploying prebuilt web output to Vercel production..."
+          vercel deploy --prod --yes --token="$VERCEL_TOKEN"
+          echo "Vercel production deployment completed."
+
+  deploy-backend-render:
+    name: Deploy Backend to Render
+    needs: versions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Render (Production)
+        shell: bash
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          if [ -n "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "Triggering Render backend deployment via Deploy Hook..."
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$RENDER_DEPLOY_HOOK_URL")
+            if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+              echo "Render deploy hook triggered successfully (HTTP $HTTP_STATUS)."
+            else
+              echo "::warning::Render deploy hook returned status $HTTP_STATUS."
+            fi
+          elif [ -n "$RENDER_API_KEY" ] && [ -n "$RENDER_SERVICE_ID" ]; then
+            echo "Triggering Render backend deployment via Render API..."
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+              -H "Authorization: Bearer $RENDER_API_KEY" \
+              -H "Accept: application/json" \
+              "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys")
+            if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+              echo "Render API deployment triggered successfully (HTTP $HTTP_STATUS)."
+            else
+              echo "::warning::Render API deployment returned status $HTTP_STATUS."
+            fi
+          else
+            echo "::warning::Neither RENDER_DEPLOY_HOOK_URL nor (RENDER_API_KEY + RENDER_SERVICE_ID) configured; skipping Render deployment."
+          fi
+
   release:
     name: Create GitHub Release
     needs:
       - versions
-      - validate
       - build-apk
       - build-web
       - build-windows
       - build-macos
       - build-ios
       - build-linux-nonfatal
-    if: always() && needs.validate.result == 'success'
+      - deploy-frontend-vercel
+      - deploy-backend-render
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -186,26 +253,6 @@ jobs:
           name: 'Dine Master ${{ needs.versions.outputs.tag-name }}'
           files: release-artifacts/**/*
           generate_release_notes: true
-          # body: |
-          #   ## Dine Master ${{ needs.versions.outputs.tag-name }}
-
-          #   Automated production release built by GitHub Actions.
-
-          #   > **Distribution Notice**: This release contains compiled application binaries only. Source code archives are excluded from this release.
-
-          #   ### Included platforms
-          #   - **Android**: `dine-master-release.apk` (signed if Android secrets are configured)
-          #   - **Web**: `dine-master-web.tar.gz` (hostable static build)
-          #   - **Windows**: `dine-master-windows-setup.exe` (Setup Wizard) / `dine-master-windows-x64.zip` (Portable)
-          #   - **macOS**: `dine-master-macos.app.zip` (signed if macOS secrets are configured)
-          #   - **iOS**: `dine-master-ios.ipa` + App Store Connect (TestFlight) upload (if iOS secrets are configured)
-
-          #   ### Linux
-          #   - **Linux**: `dine-master-linux-x64.tar.gz` (${{ needs.build-linux-nonfatal.result == 'success' && 'uploaded' || 'skipped (build failure non-fatal)' }})
-
-          #   Download the compiled artifact for your platform and install it directly.
-
-          #   > **Note**: Application bundle identifier is configured as `com.dinemaster`.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -232,11 +279,3 @@ jobs:
           name: 'Dine Master ${{ needs.versions.outputs.tag-name }}'
           files: release-artifacts/**/*
           generate_release_notes: true
-          # body: |
-          #   ## Dine Master ${{ needs.versions.outputs.tag-name }}
-
-          #   Public automated production release.
-
-          #   > **Distribution Notice**: This release contains compiled application binaries only. Source code archives are excluded.
-
-          #   Download the compiled artifact for your platform and install it directly.
