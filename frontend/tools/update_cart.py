@@ -1,7 +1,9 @@
 import sys
 import re
+from pathlib import Path
 
-cart_file = r'c:\Users\ssbha\Desktop\acccount\26_2_DineMaster\lib\screens\waiter\components\waiter_cart_panel.dart'
+frontend_dir = Path(__file__).resolve().parents[1]
+cart_file = frontend_dir / 'lib' / 'screens' / 'waiter' / 'components' / 'waiter_cart_panel.dart'
 
 with open(cart_file, 'r', encoding='utf-8') as f:
     content = f.read()

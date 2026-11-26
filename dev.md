@@ -110,7 +110,7 @@ Password: owner123
 | `dart analyze` | Static analysis (strict mode) |
 | `flutter test` | Unit & widget testing |
 | `analysis_options.yaml` | Configured lint rules |
-| Python scripts | Build/data utility scripts (`assemble.py`, `fix_types.py`, `update_cart.py`) |
+| Python scripts | Build/data utility scripts (`frontend/tools/assemble.py`, `frontend/tools/fix_types.py`, `frontend/tools/update_cart.py`) |
 
 ---
 
@@ -330,12 +330,12 @@ POS Terminal — Shelf Server (Host · port 8080)
 │   └── build.yml             # Reusable: multi-platform build
 ├── pubspec.yaml              # Flutter dependencies & assets
 ├── analysis_options.yaml     # Dart lint configuration
-├── database.md               # SQLite schema reference
-├── features.md               # Exhaustive feature specification
+├── frontend/docs/database.md               # SQLite schema reference
+├── frontend/docs/features.md               # Exhaustive feature specification
 ├── dev.md                    # This document
-├── assemble.py               # Build assembly utility script
-├── fix_types.py              # Type fix utility script
-└── update_cart.py            # Cart update utility script
+├── frontend/tools/assemble.py               # Build assembly utility script
+├── frontend/tools/fix_types.py              # Type fix utility script
+└── frontend/tools/update_cart.py            # Cart update utility script
 ```
 
 ---
@@ -366,7 +366,7 @@ The application uses **SQLite** (`sqflite` / `sqflite_common_ffi`) with the foll
 | `offers` | Promotional discount codes |
 | `loyalty_transactions` | Customer loyalty point earn/redeem ledger |
 
-> Full schema with column types, constraints, and descriptions: [database.md](database.md)
+> Full schema with column types, constraints, and descriptions: [database.md](frontend/docs/database.md)
 
 ---
 

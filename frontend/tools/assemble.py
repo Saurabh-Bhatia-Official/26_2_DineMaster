@@ -1,7 +1,9 @@
 import sys
 import re
+from pathlib import Path
 
-screen_file = r'c:\Users\ssbha\Desktop\acccount\26_2_DineMaster\lib\screens\waiter_order_screen.dart'
+frontend_dir = Path(__file__).resolve().parents[1]
+screen_file = frontend_dir / 'lib' / 'screens' / 'waiter_order_screen.dart'
 
 with open(screen_file, 'r', encoding='utf-8') as f:
     content = f.read()

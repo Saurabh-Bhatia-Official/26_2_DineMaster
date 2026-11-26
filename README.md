@@ -4,7 +4,7 @@ A complete enterprise-grade Restaurant ERP & POS Management System built with Fl
 
 ## Features
 
-> 📖 **Full Feature Breakdown**: For an exhaustive, granular specification of all modules, workflows, and subfeatures, see [features.md](features.md).  
+> 📖 **Full Feature Breakdown**: For an exhaustive, granular specification of all modules, workflows, and subfeatures, see [features.md](frontend/docs/features.md).  
 > 🚀 **Quick Execution Guide**: For step-by-step terminal commands, paths, and backend/frontend launch options, see [run.md](run.md).
 
 ### 🍽️ Point of Sale (POS) & High-Speed Billing
