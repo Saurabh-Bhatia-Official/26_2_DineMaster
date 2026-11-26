@@ -8,6 +8,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/database/database_helper.dart';
+import '../core/api/api_config.dart';
 import '../repositories/outbox_repository.dart';
 import 'edge_host_credentials.dart';
 
@@ -463,8 +464,11 @@ class SyncEngine {
 
   Future<Uri> _uri(String path) async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString('backend_api_url')?.trim();
-    final base = raw == null || raw.isEmpty ? null : Uri.tryParse(raw);
+    final configured = prefs.getString('backend_api_url')?.trim();
+    final raw = configured != null && configured.isNotEmpty
+        ? configured
+        : await ApiConfig.getBaseUrl();
+    final base = raw.isEmpty ? null : Uri.tryParse(raw);
     if (base == null ||
         base.scheme != 'https' ||
         !base.hasAuthority ||

@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:dine_master/core/theme/app_colors.dart';
 import '../core/platform/io.dart';
 import 'package:path/path.dart';
@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/database/database_helper.dart';
 import '../core/api/api_mode.dart';
+import '../core/api/api_config.dart';
 import '../main.dart';
 import '../repositories/settings_repository.dart';
 import '../services/sync_service.dart';
@@ -713,7 +714,7 @@ class SettingsScreen extends StatelessWidget {
     );
     bool useBackendApi = prefs.getBool('use_backend_api') ?? false;
     final backendApiController = TextEditingController(
-      text: prefs.getString('backend_api_url') ?? 'http://localhost:8081',
+      text: prefs.getString('backend_api_url') ?? ApiConfig.defaultBackendUrl,
     );
 
     String localIp = 'Detecting...';
@@ -856,11 +857,11 @@ class SettingsScreen extends StatelessWidget {
                     const SizedBox(height: 8),
                     TextField(
                       controller: backendApiController,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Backend API URL',
-                        hintText: 'http://192.168.1.100:8081',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.api),
+                        hintText: ApiConfig.defaultBackendUrl,
+                        border: const OutlineInputBorder(),
+                        prefixIcon: const Icon(Icons.api),
                       ),
                     ),
                   ],
@@ -881,9 +882,23 @@ class SettingsScreen extends StatelessWidget {
                       );
                     }
                     await prefs.setBool('use_backend_api', useBackendApi);
+                    var enteredUrl = backendApiController.text.trim();
+                    if (ApiConfig.isProduction && ApiConfig.isLocalhost(enteredUrl)) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Localhost URLs are not allowed in production. Using Render production backend.',
+                            ),
+                            backgroundColor: Colors.orange,
+                          ),
+                        );
+                      }
+                      enteredUrl = ApiConfig.productionBackendUrl;
+                    }
                     await prefs.setString(
                       'backend_api_url',
-                      backendApiController.text.trim(),
+                      enteredUrl.isEmpty ? ApiConfig.defaultBackendUrl : enteredUrl,
                     );
 
                     // Reinitialize connection

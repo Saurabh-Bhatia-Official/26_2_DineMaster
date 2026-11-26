@@ -473,6 +473,41 @@ secrets, keystores, or Apple certificates to the repository. Store the values as
 
 ---
 
+## Production Deployment & URLs
+
+DineMaster is deployed with modern cloud infrastructure:
+
+- **Frontend (Vercel)**: [`https://26-2-dine-master.vercel.app/`](https://26-2-dine-master.vercel.app/)
+  - Single Page Application (SPA) routing with rewrite rules configured in `vercel.json`
+  - Centralized API endpoint resolution connecting directly to the Render backend
+  - Automated deployment via GitHub Actions CI/CD with Vercel CLI
+- **Backend (Render)**: [`https://two6-2-dinemaster.onrender.com`](https://two6-2-dinemaster.onrender.com)
+  - Spring Boot 3 & Java 21 REST API containerized with multi-stage `Dockerfile` and `render.yaml` Blueprint
+  - Dynamic `$PORT` binding and CORS configuration allowing requests from `https://26-2-dine-master.vercel.app`
+  - Health check endpoint available at `/api/v1/health` and `/`
+  - Automated deployment via Render Deploy Hook / Render API in GitHub Actions
+
+---
+
+## CI/CD Pipeline & GitHub Repository Secrets
+
+The GitHub Actions release pipeline (`.github/workflows/release.yml`) builds and deploys on every push to `main` (or manual `workflow_dispatch`). Testing and validation steps have been removed to ensure fast, dedicated artifact generation and deployment.
+
+### Repository Secrets Configuration
+
+To enable automated production deployments, configure the following secrets in GitHub (**Settings > Secrets and variables > Actions**):
+
+| Secret Name | Service | Purpose |
+|-------------|---------|---------|
+| `VERCEL_TOKEN` | Vercel | Personal / Team access token for automated Vercel deployment |
+| `VERCEL_ORG_ID` | Vercel | Vercel Team / Account ID (`team_xxx` or user ID) |
+| `VERCEL_PROJECT_ID` | Vercel | Vercel Project ID (`prj_xxx`) |
+| `RENDER_DEPLOY_HOOK_URL` | Render | Web service Deploy Hook URL (preferred for Render deployment) |
+| `RENDER_API_KEY` | Render | API token for Render API (fallback if hook is not used) |
+| `RENDER_SERVICE_ID` | Render | Service ID for the backend web service on Render (`srv-xxx`) |
+
+---
+
 ## Versioning & Releases
 
 Dine Master follows **`Major.Minor.Patch`** versioning (e.g. `1.0.0`). The
@@ -488,9 +523,11 @@ application version lives in `frontend/pubspec.yaml` (`version: 1.0.0+1`).
    git push origin main
    ```
 3. The `release.yml` workflow triggers automatically:
-   - Runs `dart analyze` + `flutter test` inside `frontend/`.
-   - Builds production packages for Android, Web, Windows, macOS, and iOS.
-   - Attaches build artifacts and publishes the release.
+   - Resolves application version and tag.
+   - Builds production packages for Android (both APK and AAB), Web, Windows, macOS, and iOS.
+   - Deploys prebuilt frontend web artifacts directly to **Vercel Production**.
+   - Triggers production backend deployment on **Render**.
+   - Attaches build artifacts and publishes the private/public GitHub Release.
    - Uploads the iOS build to **App Store Connect / TestFlight** when iOS signing
      and App Store Connect secrets are configured (`upload-ios: true`).
 

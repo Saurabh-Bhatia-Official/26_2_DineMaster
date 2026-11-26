@@ -6,7 +6,10 @@
 # ------------------------------------------------------------------------------
 # 1. Environment Variables & Secrets (CRITICAL)
 # ------------------------------------------------------------------------------
-# Root environment files
+# Vercel & Render build caches
+.vercel
+.render
+
 .env
 .env.local
 .env.*.local

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../core/api/api_config.dart';
 import 'auth_token_storage.dart';
 
 class BackendApiException implements Exception {
@@ -66,9 +67,21 @@ class BackendApiClient {
         ? serverIp
         : 'localhost';
 
-    final baseUrl = configuredBaseUrl == null || configuredBaseUrl.isEmpty
-        ? 'http://$fallbackHost:8081'
-        : configuredBaseUrl.replaceFirst(RegExp(r'/$'), '');
+    String baseUrl;
+    if (configuredBaseUrl != null && configuredBaseUrl.isNotEmpty) {
+      baseUrl = configuredBaseUrl.replaceFirst(RegExp(r'/+$'), '');
+    } else if (ApiConfig.envApiBaseUrl.isNotEmpty) {
+      baseUrl = ApiConfig.envApiBaseUrl.replaceFirst(RegExp(r'/+$'), '');
+    } else if (!isServer && serverIp != null && serverIp.isNotEmpty && !ApiConfig.isProduction) {
+      baseUrl = 'http://$fallbackHost:8081';
+    } else {
+      baseUrl = ApiConfig.defaultBackendUrl;
+    }
+
+    // Prevent localhost URLs from being used in production
+    if (ApiConfig.isProduction && ApiConfig.isLocalhost(baseUrl)) {
+      baseUrl = ApiConfig.productionBackendUrl;
+    }
 
     final normalizedPath =
         path.startsWith('/api/') &&
