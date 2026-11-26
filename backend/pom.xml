@@ -132,11 +132,42 @@
     </dependencies>
 
     <build>
-        <plugins>
-            <plugin>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-maven-plugin</artifactId>
-            </plugin>
-        </plugins>
-    </build>
+    <plugins>
+
+        <!-- Spring Boot Maven Plugin -->
+        <plugin>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-maven-plugin</artifactId>
+        </plugin>
+
+        <!-- Flyway Maven Plugin -->
+        <plugin>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-maven-plugin</artifactId>
+            <version>10.10.0</version>
+
+            <dependencies>
+                <dependency>
+                    <groupId>org.flywaydb</groupId>
+                    <artifactId>flyway-database-postgresql</artifactId>
+                    <version>10.10.0</version>
+                </dependency>
+
+                <dependency>
+                    <groupId>org.postgresql</groupId>
+                    <artifactId>postgresql</artifactId>
+                    <version>${postgresql.version}</version>
+                </dependency>
+            </dependencies>
+
+            <configuration>
+                <locations>
+                    <location>filesystem:src/main/resources/db/migration</location>
+                </locations>
+                <cleanDisabled>true</cleanDisabled>
+            </configuration>
+        </plugin>
+
+    </plugins>
+</build>
 </project>
