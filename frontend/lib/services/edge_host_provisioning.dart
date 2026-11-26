@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/database/database_helper.dart';
+import '../core/api/api_config.dart';
 import 'auth_token_storage.dart';
 import 'edge_host_credentials.dart';
 import 'edge_host_identity.dart';
@@ -123,8 +124,11 @@ class EdgeHostProvisioning {
 
   Future<Uri> _baseUri() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString('backend_api_url')?.trim();
-    final uri = raw == null || raw.isEmpty ? null : Uri.tryParse(raw);
+    final configured = prefs.getString('backend_api_url')?.trim();
+    final raw = configured != null && configured.isNotEmpty
+        ? configured
+        : await ApiConfig.getBaseUrl();
+    final uri = raw.isEmpty ? null : Uri.tryParse(raw);
     if (uri == null ||
         uri.scheme != 'https' ||
         !uri.hasAuthority ||

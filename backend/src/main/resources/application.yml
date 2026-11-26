@@ -1,5 +1,5 @@
 server:
-  port: ${SERVER_PORT:8081}
+  port: ${PORT:${SERVER_PORT:8081}}
 
 dinemaster:
   edge-authoritative-mode: ${EDGE_AUTHORITATIVE_MODE:false}
@@ -7,9 +7,11 @@ dinemaster:
   edge-jwt-private-key-pem: ${EDGE_JWT_PRIVATE_KEY_PEM:}
   edge-jwt-public-key-pem: ${EDGE_JWT_PUBLIC_KEY_PEM:}
   sync-enabled: ${M28_SYNC_ENABLED:false}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:https://26-2-dine-master.vercel.app,https://26-2-dine-master.vercel.app/,https://two6-2-dinemaster.onrender.com}
   guest:
-    menu-base-url: ${GUEST_MENU_BASE_URL:/#/guest-menu}
-    allowed-origin: ${GUEST_ALLOWED_ORIGIN:}
+    menu-base-url: ${GUEST_MENU_BASE_URL:https://26-2-dine-master.vercel.app/#/guest-menu}
+    allowed-origin: ${GUEST_ALLOWED_ORIGIN:https://26-2-dine-master.vercel.app}
 
 spring:
   config:

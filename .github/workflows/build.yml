@@ -236,14 +236,20 @@ jobs:
         shell: bash
         run: |
           flutter build apk --release --build-name ${{ inputs.version-name }} --build-number ${{ inputs.build-number }}
-          cd build/app/outputs/flutter-apk
-          cp app-release.apk "$GITHUB_WORKSPACE/build/dist/${{ inputs.archive-name }}-release.apk"
+          flutter build appbundle --release --build-name ${{ inputs.version-name }} --build-number ${{ inputs.build-number }} || true
+          if [ -f build/app/outputs/flutter-apk/app-release.apk ]; then
+            cp build/app/outputs/flutter-apk/app-release.apk "$GITHUB_WORKSPACE/build/dist/${{ inputs.archive-name }}-release.apk"
+          fi
+          if [ -f build/app/outputs/bundle/release/app-release.aab ]; then
+            cp build/app/outputs/bundle/release/app-release.aab "$GITHUB_WORKSPACE/build/dist/${{ inputs.archive-name }}-release.aab"
+          fi
 
       - name: Build Web
         if: ${{ inputs.platform == 'web' }}
         shell: bash
         run: |
-          flutter build web --release
+          flutter build web --release --dart-define=API_BASE_URL=https://two6-2-dinemaster.onrender.com --dart-define=APP_ENV=production
+          cp web/vercel.json build/web/vercel.json 2>/dev/null || true
           cd build/web
           tar -czf "$GITHUB_WORKSPACE/build/dist/${{ inputs.archive-name }}-web.tar.gz" .
 

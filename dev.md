@@ -106,7 +106,7 @@ Password: owner123
 
 | Tool | Purpose |
 |------|---------|
-| GitHub Actions | CI/CD — analysis, testing, multi-platform builds, GitHub Releases |
+| GitHub Actions | CI/CD — multi-platform builds, Vercel frontend & Render backend deployment, GitHub Releases |
 | `dart analyze` | Static analysis (strict mode) |
 | `flutter test` | Unit & widget testing |
 | `analysis_options.yaml` | Configured lint rules |
@@ -324,10 +324,8 @@ POS Terminal — Shelf Server (Host · port 8080)
 ├── web/                      # Web platform files
 ├── test/                     # Unit & widget tests
 ├── .github/workflows/        # GitHub Actions CI/CD pipelines
-│   ├── pull_request.yml      # PR validation pipeline
-│   ├── release.yml           # Release build & publish pipeline
-│   ├── validate.yml          # Reusable: analyze + test
-│   └── build.yml             # Reusable: multi-platform build
+│   ├── release.yml           # Release, Vercel & Render deployment pipeline
+│   └── build.yml             # Reusable: multi-platform build (Android APK/AAB, Web, Win, Mac, iOS, Linux)
 ├── pubspec.yaml              # Flutter dependencies & assets
 ├── analysis_options.yaml     # Dart lint configuration
 ├── frontend/docs/database.md               # SQLite schema reference

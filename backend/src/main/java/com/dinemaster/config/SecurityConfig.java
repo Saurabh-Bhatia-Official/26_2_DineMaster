@@ -30,6 +30,8 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtFilter;
     private final ObjectMapper objectMapper;
+    @Value("${dinemaster.cors.allowed-origins:https://26-2-dine-master.vercel.app,https://26-2-dine-master.vercel.app/,https://two6-2-dinemaster.onrender.com}")
+    private String corsAllowedOrigins;
     @Value("${dinemaster.guest.allowed-origin:}")
     private String guestAllowedOrigin;
     @Value("${dinemaster.edge-authoritative-mode:false}")
@@ -45,15 +47,26 @@ public class SecurityConfig {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOriginPatterns(List.of(
                 "http://localhost:*",
-                "http://127.0.0.1:*"));
+                "http://127.0.0.1:*",
+                "https://*.vercel.app",
+                "https://*.onrender.com"));
+        if (corsAllowedOrigins != null && !corsAllowedOrigins.isBlank()) {
+            for (String origin : corsAllowedOrigins.split(",")) {
+                String trimmed = origin.trim();
+                if (!trimmed.isEmpty()) {
+                    configuration.addAllowedOrigin(trimmed);
+                }
+            }
+        }
         if (guestAllowedOrigin != null && !guestAllowedOrigin.isBlank()) {
             configuration.addAllowedOrigin(guestAllowedOrigin.trim());
         }
         configuration.setAllowedMethods(List.of(
-                "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+                "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"));
         configuration.setAllowedHeaders(List.of("*"));
-        configuration.setExposedHeaders(List.of("Authorization"));
-        configuration.setAllowCredentials(false);
+        configuration.setExposedHeaders(List.of("Authorization", "Link", "X-Total-Count", "X-Request-Id", "ETag"));
+        configuration.setAllowCredentials(true);
+        configuration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
