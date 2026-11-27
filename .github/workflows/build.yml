@@ -426,8 +426,8 @@ jobs:
         if: ${{ inputs.platform == 'android' }}
         shell: bash
         run: |
-          flutter build apk --release --build-name ${{ inputs.version-name }} --build-number ${{ inputs.build-number }} --android-skip-build-dependency-validation
-          flutter build appbundle --release --build-name ${{ inputs.version-name }} --build-number ${{ inputs.build-number }} --android-skip-build-dependency-validation || true
+          flutter build apk --release --build-name ${{ inputs.version-name }} --build-number ${{ inputs.build-number }}
+          flutter build appbundle --release --build-name ${{ inputs.version-name }} --build-number ${{ inputs.build-number }} || true
           DIST_DIR="$GITHUB_WORKSPACE/build/dist"
           mkdir -p "$DIST_DIR"
           APK_FILE=$(find build/app -name "*-release.apk" -o -name "app-release.apk" | head -n 1)
