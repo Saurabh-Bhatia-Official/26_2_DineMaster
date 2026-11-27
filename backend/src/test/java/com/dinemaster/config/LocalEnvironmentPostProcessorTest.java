@@ -49,6 +49,28 @@ class LocalEnvironmentPostProcessorTest {
 
         assertEquals(raw, parsed.jdbcUrl);
         assertEquals("custom-host", parsed.host);
+        assertNull(parsed.username);
+        assertNull(parsed.password);
+    }
+
+    @Test
+    void parseDatabaseUrlExtractsCredentialsFromJdbcUrl() {
+        String raw = "jdbc:postgresql://admin:supersecret@myhost.postgres.database.azure.com:5432/mydb?sslmode=require";
+        LocalEnvironmentPostProcessor.ParsedDatabaseUrl parsed = LocalEnvironmentPostProcessor.parseDatabaseUrl(raw);
+
+        assertEquals("myhost.postgres.database.azure.com", parsed.host);
+        assertEquals("admin", parsed.username);
+        assertEquals("supersecret", parsed.password);
+    }
+
+    @Test
+    void parseDatabaseUrlExtractsCredentialsFromJdbcQueryParams() {
+        String raw = "jdbc:postgresql://myhost:5432/mydb?user=dbuser&password=dbpassword&sslmode=require";
+        LocalEnvironmentPostProcessor.ParsedDatabaseUrl parsed = LocalEnvironmentPostProcessor.parseDatabaseUrl(raw);
+
+        assertEquals("myhost", parsed.host);
+        assertEquals("dbuser", parsed.username);
+        assertEquals("dbpassword", parsed.password);
     }
 
     @Test
@@ -88,6 +110,10 @@ class LocalEnvironmentPostProcessorTest {
                     env.getProperty("spring.datasource.url"));
             assertEquals("testuser", env.getProperty("spring.datasource.username"));
             assertEquals("testpass", env.getProperty("spring.datasource.password"));
+            assertEquals("jdbc:postgresql://dpg-test-a.oregon-postgres.render.com:5432/testdb?sslmode=require",
+                    env.getProperty("spring.flyway.url"));
+            assertEquals("testuser", env.getProperty("spring.flyway.user"));
+            assertEquals("testpass", env.getProperty("spring.flyway.password"));
         } finally {
             System.clearProperty("DATABASE_URL");
         }

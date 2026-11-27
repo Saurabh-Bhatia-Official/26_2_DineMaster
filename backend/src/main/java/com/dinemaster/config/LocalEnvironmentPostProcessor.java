@@ -81,15 +81,36 @@ public class LocalEnvironmentPostProcessor implements EnvironmentPostProcessor {
 
             resolved.put("spring.datasource.url", parsed.jdbcUrl);
             resolved.put("SPRING_DATASOURCE_URL", parsed.jdbcUrl);
-            if (parsed.username != null && !parsed.username.isBlank()) {
-                resolved.put("spring.datasource.username", parsed.username);
-                resolved.put("SPRING_DATASOURCE_USERNAME", parsed.username);
-                resolved.put("DB_USERNAME", parsed.username);
+            resolved.put("spring.flyway.url", parsed.jdbcUrl);
+            resolved.put("FLYWAY_URL", parsed.jdbcUrl);
+
+            String finalUsername = (parsed.username != null && !parsed.username.isBlank())
+                    ? parsed.username
+                    : stripQuotes(getProperty(environment, fileValues, "DB_USERNAME"));
+            if (finalUsername == null || finalUsername.isBlank()) {
+                finalUsername = stripQuotes(getProperty(environment, fileValues, "SPRING_DATASOURCE_USERNAME"));
             }
-            if (parsed.password != null) {
-                resolved.put("spring.datasource.password", parsed.password);
-                resolved.put("SPRING_DATASOURCE_PASSWORD", parsed.password);
-                resolved.put("DB_PASSWORD", parsed.password);
+
+            String finalPassword = (parsed.password != null)
+                    ? parsed.password
+                    : stripQuotes(getProperty(environment, fileValues, "DB_PASSWORD"));
+            if (finalPassword == null) {
+                finalPassword = stripQuotes(getProperty(environment, fileValues, "SPRING_DATASOURCE_PASSWORD"));
+            }
+
+            if (finalUsername != null && !finalUsername.isBlank()) {
+                resolved.put("spring.datasource.username", finalUsername);
+                resolved.put("SPRING_DATASOURCE_USERNAME", finalUsername);
+                resolved.put("DB_USERNAME", finalUsername);
+                resolved.put("spring.flyway.user", finalUsername);
+                resolved.put("FLYWAY_USER", finalUsername);
+            }
+            if (finalPassword != null) {
+                resolved.put("spring.datasource.password", finalPassword);
+                resolved.put("SPRING_DATASOURCE_PASSWORD", finalPassword);
+                resolved.put("DB_PASSWORD", finalPassword);
+                resolved.put("spring.flyway.password", finalPassword);
+                resolved.put("FLYWAY_PASSWORD", finalPassword);
             }
             resolved.put("spring.datasource.driver-class-name", "org.postgresql.Driver");
 
@@ -101,20 +122,35 @@ public class LocalEnvironmentPostProcessor implements EnvironmentPostProcessor {
             }
 
             String port = getPropertyOrDefault(environment, fileValues, "DB_PORT", "5432");
-            String dbName = getPropertyOrDefault(environment, fileValues, "DB_NAME", "dinemaster");
+            String dbName = getPropertyOrDefault(environment, fileValues, "DB_NAME", "dine_master");
             String sslMode = getPropertyOrDefault(environment, fileValues, "DB_SSLMODE", isProd ? "require" : "prefer");
-            String username = stripQuotes(getPropertyOrDefault(environment, fileValues, "DB_USERNAME", "postgres"));
+            String channelBinding = getProperty(environment, fileValues, "DB_CHANNEL_BINDING");
+            if ((channelBinding == null || channelBinding.isBlank()) && dbHost.contains("neon.tech")) {
+                channelBinding = "require";
+            }
+            String username = stripQuotes(getPropertyOrDefault(environment, fileValues, "DB_USERNAME", "dine_master_owner"));
             String password = stripQuotes(getPropertyOrDefault(environment, fileValues, "DB_PASSWORD", ""));
 
-            String jdbcUrl = "jdbc:postgresql://" + dbHost + ":" + port + "/" + dbName + "?sslmode=" + sslMode;
+            StringBuilder queryParams = new StringBuilder("?sslmode=").append(sslMode);
+            if (channelBinding != null && !channelBinding.isBlank()) {
+                queryParams.append("&channel_binding=").append(channelBinding);
+            }
+
+            String jdbcUrl = "jdbc:postgresql://" + dbHost + ":" + port + "/" + dbName + queryParams.toString();
             resolved.put("spring.datasource.url", jdbcUrl);
             resolved.put("SPRING_DATASOURCE_URL", jdbcUrl);
+            resolved.put("spring.flyway.url", jdbcUrl);
+            resolved.put("FLYWAY_URL", jdbcUrl);
             resolved.put("spring.datasource.username", username);
             resolved.put("SPRING_DATASOURCE_USERNAME", username);
             resolved.put("DB_USERNAME", username);
+            resolved.put("spring.flyway.user", username);
+            resolved.put("FLYWAY_USER", username);
             resolved.put("spring.datasource.password", password);
             resolved.put("SPRING_DATASOURCE_PASSWORD", password);
             resolved.put("DB_PASSWORD", password);
+            resolved.put("spring.flyway.password", password);
+            resolved.put("FLYWAY_PASSWORD", password);
             resolved.put("spring.datasource.driver-class-name", "org.postgresql.Driver");
 
         } else if (isProd) {
@@ -173,12 +209,40 @@ public class LocalEnvironmentPostProcessor implements EnvironmentPostProcessor {
         // 1. If already in JDBC format
         if (cleanedUrl.startsWith("jdbc:")) {
             String host = null;
+            String username = null;
+            String password = null;
             try {
                 String sub = cleanedUrl.substring(5); // strip "jdbc:"
                 URI uri = URI.create(sub);
                 host = uri.getHost();
+                String userInfo = uri.getUserInfo();
+                if (userInfo != null && !userInfo.isEmpty()) {
+                    int colonIdx = userInfo.indexOf(':');
+                    if (colonIdx >= 0) {
+                        username = stripQuotes(URLDecoder.decode(userInfo.substring(0, colonIdx), StandardCharsets.UTF_8));
+                        password = stripQuotes(URLDecoder.decode(userInfo.substring(colonIdx + 1), StandardCharsets.UTF_8));
+                    } else {
+                        username = stripQuotes(URLDecoder.decode(userInfo, StandardCharsets.UTF_8));
+                        password = "";
+                    }
+                }
+                String query = uri.getQuery();
+                if (query != null && !query.isEmpty()) {
+                    for (String param : query.split("&")) {
+                        int eq = param.indexOf('=');
+                        if (eq > 0) {
+                            String k = param.substring(0, eq).trim();
+                            String v = stripQuotes(URLDecoder.decode(param.substring(eq + 1).trim(), StandardCharsets.UTF_8));
+                            if ("user".equalsIgnoreCase(k) && (username == null || username.isBlank())) {
+                                username = v;
+                            } else if ("password".equalsIgnoreCase(k) && (password == null || password.isBlank())) {
+                                password = v;
+                            }
+                        }
+                    }
+                }
             } catch (Exception ignored) {}
-            return new ParsedDatabaseUrl(cleanedUrl, host, null, null);
+            return new ParsedDatabaseUrl(cleanedUrl, host, username, password);
         }
 
         // 2. Parse postgres:// or postgresql:// URI

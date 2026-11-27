@@ -26,7 +26,7 @@ services:
       - key: DB_PORT
         value: 5432
       - key: DB_NAME
-        value: dinemaster
+        value: dine_master
       - key: DB_USERNAME
         sync: false
       - key: DB_PASSWORD
