@@ -14,6 +14,9 @@ class ApiConfig {
   /// Local Development Backend URL
   static const String localBackendUrl = 'http://localhost:8081';
 
+  /// Production Render Backend URL
+  static const String renderBackendUrl = 'https://two6-2-dinemaster.onrender.com';
+
   /// Values loaded from the bundled frontend/.env file.
   static String get envApiBaseUrl => dotenv.env['API_BASE_URL']?.trim() ?? '';
   static String get envAppEnv => dotenv.env['APP_ENV']?.trim() ?? '';
@@ -36,11 +39,11 @@ class ApiConfig {
     if (envApiBaseUrl.isNotEmpty) {
       return envApiBaseUrl.replaceFirst(RegExp(r'/+$'), '');
     }
-    return isProduction ? '' : localBackendUrl;
+    return isProduction ? renderBackendUrl : localBackendUrl;
   }
 
   /// Resolves the centralized API base URL, guaranteeing that localhost URLs
-  /// cannot be used in production environments.
+  /// are appropriately routed or mapped to the Render backend in production.
   static Future<String> getBaseUrl() async {
     final prefs = await SharedPreferences.getInstance();
     final configured = prefs.getString('backend_api_url')?.trim();
@@ -60,7 +63,7 @@ class ApiConfig {
       if (fallbackHost.isNotEmpty && !isProduction) {
         rawBaseUrl = 'http://$fallbackHost:8081';
       } else {
-        rawBaseUrl = isProduction ? '' : localBackendUrl;
+        rawBaseUrl = isProduction ? renderBackendUrl : localBackendUrl;
       }
     }
 
@@ -68,14 +71,12 @@ class ApiConfig {
     var sanitized = rawBaseUrl.replaceFirst(RegExp(r'/+$'), '');
 
     if (sanitized.isEmpty) {
-      throw StateError('API_BASE_URL is not configured. Set it in frontend/.env.');
+      sanitized = isProduction ? renderBackendUrl : localBackendUrl;
     }
 
-    // Prevent localhost URLs from being used in production
+    // If running in production and pointing to localhost, fallback to Render API
     if (isProduction && isLocalhost(sanitized)) {
-      throw StateError(
-        'API_BASE_URL must point to the deployed backend in production.',
-      );
+      sanitized = renderBackendUrl;
     }
 
     return sanitized;

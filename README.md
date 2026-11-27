@@ -519,7 +519,7 @@ Configure the following secrets in GitHub (**Settings > Secrets and variables > 
 | `VERCEL_PROJECT_ID` | Vercel | Vercel Project ID (`prj_xxx`) |
 | `RENDER_DEPLOY_HOOK_URL` | Render | Web service Deploy Hook URL (recommended for automated Render deployment) |
 | `RENDER_API_KEY` | Render | API token for Render API (fallback if deploy hook is not used) |
-| `RENDER_SERVICE_ID` | Render | Service ID for the backend web service on Render (`srv-xxx`) |
+| `RENDER_SERVICE_ID` | Render | Service ID for backend web service (`srv-dc3tq8p5efls73cf8080`) |
 | `ANDROID_KEYSTORE` | Android | Base64-encoded upload keystore (`.jks`) |
 | `ANDROID_KEY_PROPERTIES` | Android | Base64-encoded `key.properties` for release signing |
 | `ANDROID_CREDENTIALS` | Android / Play Store | Base64-encoded Google Play service account JSON |

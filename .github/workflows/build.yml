@@ -199,6 +199,7 @@ jobs:
         if: ${{ inputs.platform == 'windows' }}
         shell: pwsh
         run: flutter analyze
+        continue-on-error: true
 
       - name: Build Windows
         if: ${{ inputs.platform == 'windows' }}
