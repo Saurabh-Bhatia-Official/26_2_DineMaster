@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:http/http.dart' as http;
 
 /// Centralized API and environment configuration for DineMaster.
 ///
@@ -107,5 +108,16 @@ class ApiConfig {
         : path;
 
     return Uri.parse('$baseUrl$normalizedPath');
+  }
+
+  /// Asynchronously pings the backend in the background on startup
+  /// to spin up free Render instances and eliminate cold-start latency.
+  static void warmUpBackend() {
+    getBaseUrl().then((baseUrl) {
+      final uri = Uri.parse('$baseUrl/api/v1/health');
+      http.get(uri).timeout(const Duration(seconds: 15), onTimeout: () {
+        return http.Response('timeout', 408);
+      }).catchError((_) => http.Response('error', 500));
+    }).catchError((_) {});
   }
 }

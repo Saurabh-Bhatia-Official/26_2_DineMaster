@@ -1,0 +1,25 @@
+name: Keep Render Backend Alive
+
+on:
+  schedule:
+    # Runs every 10 minutes to prevent Render free instance spin-down (inactivity threshold is 15 minutes)
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  keep-alive:
+    name: Ping Render Health Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping Render Backend
+        run: |
+          TARGET_URL="https://two6-2-dinemaster.onrender.com/api/v1/health"
+          echo "Sending automated keep-alive ping to $TARGET_URL..."
+          STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 30 --max-time 60 "$TARGET_URL")
+          echo "Render responded with HTTP status code: $STATUS_CODE"
+          if [ "$STATUS_CODE" -ge 200 ] && [ "$STATUS_CODE" -lt 400 ]; then
+            echo "SUCCESS: Render backend is awake and active."
+          else
+            echo "NOTICE: Received HTTP $STATUS_CODE (Backend may be warming up)."
+          fi

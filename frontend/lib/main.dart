@@ -29,12 +29,16 @@ import 'screens/waiter_order_screen.dart';
 import 'services/server_service.dart';
 import 'services/sync_engine.dart';
 import 'services/sync_service.dart';
+import 'core/api/api_config.dart';
 
 final themeNotifier = ValueNotifier<ThemeMode>(ThemeMode.light);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: '.env');
+
+  // Asynchronously ping the Render backend to warm up any cold instances
+  ApiConfig.warmUpBackend();
 
   // Use clean paths (for example, /dashboard) instead of hash URLs on web.
   if (kIsWeb) {
