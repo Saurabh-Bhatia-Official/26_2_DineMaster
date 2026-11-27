@@ -80,7 +80,12 @@ class BackendApiClient {
 
     // Prevent localhost URLs from being used in production
     if (ApiConfig.isProduction && ApiConfig.isLocalhost(baseUrl)) {
-      baseUrl = ApiConfig.productionBackendUrl;
+      baseUrl = ApiConfig.envApiBaseUrl;
+      if (baseUrl.isEmpty) {
+        throw StateError(
+          'API_BASE_URL must be configured with the deployed backend URL in production.',
+        );
+      }
     }
 
     final normalizedPath =

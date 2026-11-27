@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 /// Centralized API and environment configuration for DineMaster.
 ///
@@ -7,18 +8,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// development and production environment handling and preventing localhost
 /// URLs from being inadvertently used in production.
 class ApiConfig {
-  /// Production Backend URL (Hosted on Render)
-  static const String productionBackendUrl = 'https://two6-2-dinemaster.onrender.com';
-
   /// Production Frontend URL (Hosted on Vercel)
   static const String productionFrontendUrl = 'https://26-2-dine-master.vercel.app';
 
   /// Local Development Backend URL
   static const String localBackendUrl = 'http://localhost:8081';
 
-  /// Compile-time environment variable overrides
-  static const String envApiBaseUrl = String.fromEnvironment('API_BASE_URL', defaultValue: '');
-  static const String envAppEnv = String.fromEnvironment('APP_ENV', defaultValue: '');
+  /// Values loaded from the bundled frontend/.env file.
+  static String get envApiBaseUrl => dotenv.env['API_BASE_URL']?.trim() ?? '';
+  static String get envAppEnv => dotenv.env['APP_ENV']?.trim() ?? '';
 
   /// Checks if the application is running in production mode.
   /// Web builds, release builds, or explicit APP_ENV=production are treated as production.
@@ -38,7 +36,7 @@ class ApiConfig {
     if (envApiBaseUrl.isNotEmpty) {
       return envApiBaseUrl.replaceFirst(RegExp(r'/+$'), '');
     }
-    return isProduction ? productionBackendUrl : localBackendUrl;
+    return isProduction ? '' : localBackendUrl;
   }
 
   /// Resolves the centralized API base URL, guaranteeing that localhost URLs
@@ -62,16 +60,22 @@ class ApiConfig {
       if (fallbackHost.isNotEmpty && !isProduction) {
         rawBaseUrl = 'http://$fallbackHost:8081';
       } else {
-        rawBaseUrl = isProduction ? productionBackendUrl : localBackendUrl;
+        rawBaseUrl = isProduction ? '' : localBackendUrl;
       }
     }
 
     // Strip any trailing slashes
     var sanitized = rawBaseUrl.replaceFirst(RegExp(r'/+$'), '');
 
+    if (sanitized.isEmpty) {
+      throw StateError('API_BASE_URL is not configured. Set it in frontend/.env.');
+    }
+
     // Prevent localhost URLs from being used in production
     if (isProduction && isLocalhost(sanitized)) {
-      sanitized = productionBackendUrl;
+      throw StateError(
+        'API_BASE_URL must point to the deployed backend in production.',
+      );
     }
 
     return sanitized;

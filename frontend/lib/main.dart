@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:dine_master/core/theme/app_colors.dart';
 import 'package:go_router/go_router.dart';
@@ -33,6 +34,7 @@ final themeNotifier = ValueNotifier<ThemeMode>(ThemeMode.light);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await dotenv.load(fileName: '.env');
 
   // Use clean paths (for example, /dashboard) instead of hash URLs on web.
   if (kIsWeb) {
