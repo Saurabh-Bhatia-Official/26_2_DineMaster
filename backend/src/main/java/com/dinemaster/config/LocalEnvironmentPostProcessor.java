@@ -80,11 +80,16 @@ public class LocalEnvironmentPostProcessor implements EnvironmentPostProcessor {
             }
 
             resolved.put("spring.datasource.url", parsed.jdbcUrl);
+            resolved.put("SPRING_DATASOURCE_URL", parsed.jdbcUrl);
             if (parsed.username != null && !parsed.username.isBlank()) {
                 resolved.put("spring.datasource.username", parsed.username);
+                resolved.put("SPRING_DATASOURCE_USERNAME", parsed.username);
+                resolved.put("DB_USERNAME", parsed.username);
             }
             if (parsed.password != null) {
                 resolved.put("spring.datasource.password", parsed.password);
+                resolved.put("SPRING_DATASOURCE_PASSWORD", parsed.password);
+                resolved.put("DB_PASSWORD", parsed.password);
             }
             resolved.put("spring.datasource.driver-class-name", "org.postgresql.Driver");
 
@@ -98,13 +103,18 @@ public class LocalEnvironmentPostProcessor implements EnvironmentPostProcessor {
             String port = getPropertyOrDefault(environment, fileValues, "DB_PORT", "5432");
             String dbName = getPropertyOrDefault(environment, fileValues, "DB_NAME", "dinemaster");
             String sslMode = getPropertyOrDefault(environment, fileValues, "DB_SSLMODE", isProd ? "require" : "prefer");
-            String username = getPropertyOrDefault(environment, fileValues, "DB_USERNAME", "postgres");
-            String password = getPropertyOrDefault(environment, fileValues, "DB_PASSWORD", "");
+            String username = stripQuotes(getPropertyOrDefault(environment, fileValues, "DB_USERNAME", "postgres"));
+            String password = stripQuotes(getPropertyOrDefault(environment, fileValues, "DB_PASSWORD", ""));
 
             String jdbcUrl = "jdbc:postgresql://" + dbHost + ":" + port + "/" + dbName + "?sslmode=" + sslMode;
             resolved.put("spring.datasource.url", jdbcUrl);
+            resolved.put("SPRING_DATASOURCE_URL", jdbcUrl);
             resolved.put("spring.datasource.username", username);
+            resolved.put("SPRING_DATASOURCE_USERNAME", username);
+            resolved.put("DB_USERNAME", username);
             resolved.put("spring.datasource.password", password);
+            resolved.put("SPRING_DATASOURCE_PASSWORD", password);
+            resolved.put("DB_PASSWORD", password);
             resolved.put("spring.datasource.driver-class-name", "org.postgresql.Driver");
 
         } else if (isProd) {
@@ -129,6 +139,18 @@ public class LocalEnvironmentPostProcessor implements EnvironmentPostProcessor {
         }
     }
 
+    public static String stripQuotes(String str) {
+        if (str == null) {
+            return null;
+        }
+        String s = str.trim();
+        while ((s.startsWith("'") && s.endsWith("'")) ||
+               (s.startsWith("\"") && s.endsWith("\""))) {
+            s = s.substring(1, s.length() - 1).trim();
+        }
+        return s;
+    }
+
     public static String cleanDatabaseUrl(String raw) {
         if (raw == null) {
             return "";
@@ -138,12 +160,7 @@ public class LocalEnvironmentPostProcessor implements EnvironmentPostProcessor {
         if (cleaned.toLowerCase().startsWith("psql ")) {
             cleaned = cleaned.substring(5).trim();
         }
-        // Remove surrounding single or double quotes
-        while ((cleaned.startsWith("'") && cleaned.endsWith("'")) ||
-               (cleaned.startsWith("\"") && cleaned.endsWith("\""))) {
-            cleaned = cleaned.substring(1, cleaned.length() - 1).trim();
-        }
-        return cleaned;
+        return stripQuotes(cleaned);
     }
 
     public static ParsedDatabaseUrl parseDatabaseUrl(String rawUrl) {
@@ -180,10 +197,10 @@ public class LocalEnvironmentPostProcessor implements EnvironmentPostProcessor {
                 if (userInfo != null && !userInfo.isEmpty()) {
                     int colonIdx = userInfo.indexOf(':');
                     if (colonIdx >= 0) {
-                        username = URLDecoder.decode(userInfo.substring(0, colonIdx), StandardCharsets.UTF_8);
-                        password = URLDecoder.decode(userInfo.substring(colonIdx + 1), StandardCharsets.UTF_8);
+                        username = stripQuotes(URLDecoder.decode(userInfo.substring(0, colonIdx), StandardCharsets.UTF_8));
+                        password = stripQuotes(URLDecoder.decode(userInfo.substring(colonIdx + 1), StandardCharsets.UTF_8));
                     } else {
-                        username = URLDecoder.decode(userInfo, StandardCharsets.UTF_8);
+                        username = stripQuotes(URLDecoder.decode(userInfo, StandardCharsets.UTF_8));
                         password = "";
                     }
                 }

@@ -65,13 +65,13 @@ class LocalEnvironmentPostProcessorTest {
     void postProcessRejectsLocalhostInProdProfile() {
         ConfigurableEnvironment env = new StandardEnvironment();
         env.setActiveProfiles("prod");
-        System.setProperty("DB_HOST", "localhost");
+        System.setProperty("DATABASE_URL", "postgres://user:pass@localhost:5432/db");
 
         LocalEnvironmentPostProcessor processor = new LocalEnvironmentPostProcessor();
         try {
             assertThrows(IllegalStateException.class, () -> processor.postProcessEnvironment(env, new SpringApplication()));
         } finally {
-            System.clearProperty("DB_HOST");
+            System.clearProperty("DATABASE_URL");
         }
     }
 
