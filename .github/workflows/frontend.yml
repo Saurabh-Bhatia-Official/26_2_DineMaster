@@ -266,7 +266,6 @@ jobs:
   build-windows:
     name: Build Windows (Desktop)
     needs: resolve-version
-    continue-on-error: true
     uses: ./.github/workflows/build.yml
     with:
       runner: windows-latest
@@ -279,7 +278,6 @@ jobs:
   build-macos:
     name: Build macOS (DMG & ZIP)
     needs: resolve-version
-    continue-on-error: true
     uses: ./.github/workflows/build.yml
     with:
       runner: macos-latest
@@ -292,7 +290,6 @@ jobs:
   build-linux:
     name: Build Linux (DEB, ZIP & AppImage)
     needs: resolve-version
-    continue-on-error: true
     uses: ./.github/workflows/build.yml
     with:
       runner: ubuntu-latest
@@ -305,7 +302,6 @@ jobs:
   build-android:
     name: Build Android (APK & AAB)
     needs: resolve-version
-    continue-on-error: true
     uses: ./.github/workflows/build.yml
     with:
       runner: ubuntu-latest
@@ -318,7 +314,6 @@ jobs:
   build-ios:
     name: Build iOS (IPA)
     needs: resolve-version
-    continue-on-error: true
     uses: ./.github/workflows/build.yml
     with:
       runner: macos-latest
