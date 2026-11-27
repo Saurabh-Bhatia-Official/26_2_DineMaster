@@ -281,7 +281,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libayatana-appindicator3-dev dpkg zip file
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev libjsoncpp-dev libayatana-appindicator3-dev dpkg zip file
           flutter build linux --release
 
           DIST_DIR="$GITHUB_WORKSPACE/build/dist"
