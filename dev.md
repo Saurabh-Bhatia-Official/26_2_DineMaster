@@ -324,10 +324,8 @@ POS Terminal — Shelf Server (Host · port 8080)
 ├── web/                      # Web platform files
 ├── test/                     # Unit & widget tests
 ├── .github/workflows/        # GitHub Actions CI/CD pipelines
-│   ├── frontend-deploy.yml   # Frontend CI & Vercel deployment pipeline
-│   ├── backend-deploy.yml    # Backend CI & Render deployment pipeline
-│   ├── frontend-release.yml  # Frontend multi-platform automated release (Windows, macOS, Linux, Android, iOS, Web)
-│   ├── backend-release.yml   # Backend automated release (Standalone executable JAR)
+│   ├── frontend.yml          # Frontend CI, Vercel deployment & multi-platform release
+│   ├── backend.yml           # Backend CI, Render deployment & JAR release
 │   └── build.yml             # Reusable: multi-platform build (Windows, macOS, Linux, Android, iOS, Web)
 ├── pubspec.yaml              # Flutter dependencies & assets
 ├── analysis_options.yaml     # Dart lint configuration
@@ -496,12 +494,12 @@ The project follows **`Major.Minor.Patch`** semantic versioning. Current version
 # Tag and release frontend (starting with v0.0.1)
 git tag v0.0.1
 git push origin v0.0.1
-# Triggers frontend-release.yml: builds all platforms → GitHub Release with artifacts
+# Triggers frontend.yml: builds all platforms → GitHub Release with artifacts
 
 # Tag and release backend (e.g. backend-v0.0.1)
 git tag backend-v0.0.1
 git push origin backend-v0.0.1
-# Triggers backend-release.yml: builds JAR → GitHub Release with JAR artifact
+# Triggers backend.yml: builds JAR → GitHub Release with JAR artifact
 ```
 
 ---

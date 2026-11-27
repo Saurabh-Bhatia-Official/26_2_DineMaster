@@ -54,6 +54,21 @@ class OrderControllerTest {
         private RestaurantRepository restaurantRepository;
 
         @Autowired
+        private com.dinemaster.diningtable.repository.DiningTableRepository diningTableRepository;
+
+        @Autowired
+        private com.dinemaster.diningtable.repository.FloorRepository floorRepository;
+
+        @Autowired
+        private com.dinemaster.booking.repository.BookingRepository bookingRepository;
+
+        @Autowired
+        private com.dinemaster.qr.repository.TableSessionRepository tableSessionRepository;
+
+        @Autowired
+        private com.dinemaster.catalog.repository.CategoryRepository categoryRepository;
+
+        @Autowired
         private TenantRepository tenantRepository;
 
         @Autowired
@@ -69,7 +84,12 @@ class OrderControllerTest {
         void setUp() {
                 orderItemRepository.deleteAllInBatch();
                 orderRepository.deleteAllInBatch();
+                bookingRepository.deleteAllInBatch();
+                tableSessionRepository.deleteAllInBatch();
+                diningTableRepository.deleteAllInBatch();
+                floorRepository.deleteAllInBatch();
                 productRepository.deleteAllInBatch();
+                categoryRepository.deleteAllInBatch();
                 restaurantRepository.deleteAllInBatch();
                 userRepository.deleteAllInBatch();
                 tenantRepository.deleteAllInBatch();

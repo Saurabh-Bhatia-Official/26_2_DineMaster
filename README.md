@@ -405,40 +405,35 @@ flutter test test/order_model_test.dart
 
 ## GitHub Actions CI/CD Architecture
 
-The workflows are modular, separated between frontend and backend, and configured under `.github/workflows/`:
+The workflows combine deployment and releases into unified, independent pipelines configured under `.github/workflows/`:
 
-- **`frontend-deploy.yml`** — Runs on push or pull requests to `main`/`master` when frontend files (`frontend/**`, `vercel.json`) change.
-  - Runs Flutter static analysis (`flutter analyze`) and unit/widget tests (`flutter test`).
-  - Builds the production web application.
-  - Deploys the frontend web build directly to **Vercel Production**.
-- **`backend-deploy.yml`** — Runs on push or pull requests to `main`/`master` when backend files (`backend/**`, `pom.xml`, `Dockerfile`, `render.yaml`) change.
-  - Compiles and runs Spring Boot automated tests (`./mvnw test`).
-  - Builds the production JAR package (`./mvnw clean package -DskipTests`).
-  - Triggers automated backend deployment to **Render** via Deploy Hook or Render REST API.
-- **`frontend-release.yml`** — Automated multi-platform release triggered by Git tags (`v*`, `frontend-v*`, starting with `v0.0.1`) or manual dispatch.
-  - Concurrently compiles release artifacts across **Windows** (full ZIP package + setup installer), **macOS** (DMG & ZIP), **Linux** (DEB, ZIP & AppImage), **Android** (APK & AAB), **iOS** (IPA), and **Web** (tar.gz/zip).
-  - Automatically publishes a GitHub Release containing all platform artifacts with an empty description and no auto-generated release notes.
-- **`backend-release.yml`** — Automated backend release triggered by Git tags (`backend-v*`) or manual dispatch.
-  - Builds the standalone executable JAR and publishes a GitHub Release with the JAR artifact and empty description.
-- **`build.yml`** — Reusable multi-platform builder called by the release and deployment workflows.
+- **`frontend.yml`** — Unified Frontend CI, Deployment & Release Pipeline:
+  - **CI & Tests:** Runs Flutter static analysis (`flutter analyze`) and unit/widget tests (`flutter test`).
+  - **Web Build & Vercel Deployment:** Compiles web production bundle and deploys to **Vercel Production**.
+  - **Multi-Platform Release:** Automatically triggered on tags (`v*`) or manual dispatch. Builds release packages across **Windows** (full ZIP package + setup installer), **macOS** (DMG & ZIP), **Linux** (DEB, ZIP & AppImage), **Android** (APK & AAB), **iOS** (IPA), and **Web**, then publishes the GitHub Release with auto-incremented version and empty description.
+- **`backend.yml`** — Unified Backend CI, Deployment & Release Pipeline:
+  - **CI & Tests:** Compiles and runs Spring Boot automated tests (`./mvnw test`) and packages JAR (`./mvnw clean package -DskipTests`).
+  - **Render Deployment:** Triggers production deployment to **Render** via Deploy Hook or Render REST API.
+  - **Backend Release:** Automatically triggered on tags (`backend-v*`) or manual dispatch. Packages standalone executable JAR (`dinemaster-backend-<version>.jar`) and publishes the GitHub Release.
+- **`build.yml`** — Reusable multi-platform builder called by `frontend.yml`.
 
 ### Workflow Architecture Overview
 
 ```mermaid
 flowchart TD
-    subgraph Frontend["Frontend CI/CD"]
-        F_Push["Push (frontend/**)"] --> F_CI["frontend-deploy.yml: Analyze & Test"]
+    subgraph Frontend["Frontend Workflow (frontend.yml)"]
+        F_Push["Push (frontend/**)"] --> F_CI["Flutter Analyze & Test"]
         F_CI --> F_Web["Build Web (build.yml)"]
         F_Web --> F_Vercel["Deploy to Vercel Production"]
-        F_Tag["Push Tag (v* / v0.0.1)"] --> F_Rel["frontend-release.yml"]
+        F_Tag["Push Tag (v*) or Dispatch"] --> F_Rel["Auto-Increment Version (v0.0.x)"]
         F_Rel --> F_Platforms["build.yml: Win / Mac / Linux / Android / iOS / Web"]
         F_Platforms --> F_GHR["Frontend GitHub Release (Empty body + Artifacts)"]
     end
 
-    subgraph Backend["Backend CI/CD"]
-        B_Push["Push (backend/**)"] --> B_CI["backend-deploy.yml: Maven Test & Package"]
+    subgraph Backend["Backend Workflow (backend.yml)"]
+        B_Push["Push (backend/**)"] --> B_CI["Maven Test & Package"]
         B_CI --> B_Render["Deploy to Render (Deploy Hook / API)"]
-        B_Tag["Push Tag (backend-v*)"] --> B_Rel["backend-release.yml"]
+        B_Tag["Push Tag (backend-v*) or Dispatch"] --> B_Rel["Auto-Increment Version (backend-v0.0.x)"]
         B_Rel --> B_GHR["Backend GitHub Release (Empty body + JAR)"]
     end
 ```
@@ -550,34 +545,44 @@ Configure the following variables in GitHub (**Settings > Secrets and variables 
 
 Dine Master follows semantic versioning starting with `v0.0.1` (e.g., `v0.0.1`, `v1.0.0`).
 
-### Automated Releases via Git Tags
+### Automated Releases & Auto-Increment
 
-Releases are generated automatically when Git tags are pushed:
+Releases can be generated automatically in two ways:
+
+#### Option A: Auto-Increment via GitHub Actions (`workflow_dispatch`)
+1. Go to **Actions > Frontend CI, Deployment & Release** (or **Backend CI, Deployment & Release**).
+2. Click **Run workflow**.
+3. Select the increment type:
+   - **`patch`** (Default): Auto-increments patch version (e.g., `v0.0.1` → `v0.0.2` → `v0.0.3`).
+   - **`minor`**: Increments minor version (e.g., `v0.0.3` → `v0.1.0`).
+   - **`major`**: Increments major version (e.g., `v0.1.0` → `v1.0.0`).
+   - **`custom`**: Supply an explicit version tag via the `custom-version` input.
+4. The workflow automatically reads the repository's existing tags, calculates the next version, generates the release, and tags the repository!
+
+#### Option B: Automated Releases via Git Tags
+Pushing a tag directly also triggers the release pipeline:
 
 1. **Frontend Multi-Platform Release:**
    ```bash
    git tag v0.0.1
    git push origin v0.0.1
    ```
-   Triggers `.github/workflows/frontend-release.yml`:
-   - Builds release packages across all 6 platforms:
-     - **Windows:** Complete portable ZIP archive (`dine-master-windows-x64.zip`) with `.exe`, all runtime DLLs, and data, plus setup installer (`.exe`).
-     - **macOS:** Native DMG (`.dmg`) and ZIP (`.app.zip`).
-     - **Linux:** Debian package (`.deb`), portable ZIP (`.zip`), and AppImage (`.AppImage`).
-     - **Android:** Release APK (`.apk`) and App Bundle (`.aab`).
-     - **iOS:** Release IPA archive (`.ipa`).
-     - **Web:** Production bundle (`.tar.gz` and `.zip`).
-   - Publishes the GitHub Release with the title and all downloadable artifacts, maintaining a completely empty release description without changelog noise.
+   Or use the local helper to bump and tag automatically:
+   ```bash
+   python tools/bump_version.py frontend --bump patch --tag
+   git push origin --tags
+   ```
 
 2. **Backend Standalone Release:**
    ```bash
    git tag backend-v0.0.1
    git push origin backend-v0.0.1
    ```
-   Triggers `.github/workflows/backend-release.yml`:
-   - Compiles and tests the Spring Boot application.
-   - Packages the production standalone executable JAR (`dinemaster-backend-0.0.1.jar`).
-   - Publishes the GitHub Release with the JAR artifact and empty description body.
+   Or use the local helper:
+   ```bash
+   python tools/bump_version.py backend --bump patch --tag
+   git push origin --tags
+   ```
 
 ---
 

@@ -1,0 +1,290 @@
+name: Backend CI, Deployment & Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'backend/**'
+      - 'pom.xml'
+      - 'Dockerfile'
+      - 'render.yaml'
+      - '.github/workflows/backend.yml'
+    tags:
+      - 'backend-v*'
+  pull_request:
+    branches:
+      - main
+      - master
+    paths:
+      - 'backend/**'
+      - 'pom.xml'
+      - 'Dockerfile'
+      - 'render.yaml'
+  workflow_dispatch:
+    inputs:
+      deploy_render:
+        description: 'Deploy to Render (Production)'
+        required: true
+        type: boolean
+        default: true
+      create_release:
+        description: 'Create Backend GitHub Release'
+        required: true
+        type: boolean
+        default: true
+      bump:
+        description: 'Auto-increment release version bump'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - custom
+        default: 'patch'
+      custom-version:
+        description: 'Explicit custom version (used when bump is "custom", e.g. backend-v0.0.1)'
+        required: false
+        default: ''
+
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # =====================================================================
+  # 1. BACKEND CI (Maven Tests & Package Compilation)
+  # =====================================================================
+  backend-ci:
+    name: Backend Test & Build (Spring Boot)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21 (Eclipse Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+
+      - name: Make Maven wrapper executable
+        run: chmod +x mvnw
+
+      - name: Run automated tests
+        run: ./mvnw test
+
+      - name: Package standalone executable JAR
+        run: ./mvnw clean package -DskipTests
+
+      - name: Upload backend build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dinemaster-backend-jar
+          path: backend/target/*.jar
+          if-no-files-found: error
+          retention-days: 14
+
+  # =====================================================================
+  # 2. DEPLOY TO RENDER (Production)
+  # =====================================================================
+  deploy-render:
+    name: Deploy Backend to Render (Production)
+    needs: backend-ci
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')) || (github.event_name == 'workflow_dispatch' && inputs.deploy_render)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render Deployment
+        shell: bash
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          if [ -n "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "Triggering Render backend deployment via Deploy Hook..."
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$RENDER_DEPLOY_HOOK_URL")
+            if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+              echo "Render deploy hook triggered successfully (HTTP $HTTP_STATUS)."
+            else
+              echo "::error::Render deploy hook failed with HTTP status $HTTP_STATUS."
+              exit 1
+            fi
+          elif [ -n "$RENDER_API_KEY" ] && [ -n "$RENDER_SERVICE_ID" ]; then
+            echo "Triggering Render backend deployment via Render API..."
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+              -H "Authorization: Bearer $RENDER_API_KEY" \
+              -H "Accept: application/json" \
+              "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys")
+            if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+              echo "Render API deployment triggered successfully (HTTP $HTTP_STATUS)."
+            else
+              echo "::error::Render API deployment failed with HTTP status $HTTP_STATUS."
+              exit 1
+            fi
+          else
+            echo "::warning::Neither RENDER_DEPLOY_HOOK_URL nor (RENDER_API_KEY + RENDER_SERVICE_ID) configured; skipping Render deployment."
+          fi
+
+  # =====================================================================
+  # 3. RESOLVE & AUTO-INCREMENT RELEASE VERSION
+  # =====================================================================
+  resolve-version:
+    name: Resolve & Auto-Increment Backend Version
+    needs: backend-ci
+    if: startsWith(github.ref, 'refs/tags/backend-v') || (github.event_name == 'workflow_dispatch' && inputs.create_release)
+    runs-on: ubuntu-latest
+    outputs:
+      version-name: ${{ steps.resolve.outputs.version-name }}
+      tag-name: ${{ steps.resolve.outputs.tag-name }}
+      release-title: ${{ steps.resolve.outputs.release-title }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve and Auto-Increment Backend Version
+        id: resolve
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          BUMP: ${{ inputs.bump }}
+          CUSTOM_VER: ${{ inputs.custom-version }}
+        run: |
+          python - << 'EOF'
+          import os, re, subprocess
+
+          event_name = os.getenv('EVENT_NAME', '')
+          ref_name = os.getenv('REF_NAME', '')
+          bump = os.getenv('BUMP', 'patch') or 'patch'
+          custom_ver = (os.getenv('CUSTOM_VER') or '').strip()
+
+          if event_name == 'push' and ref_name.startswith('backend-v'):
+              raw = ref_name.replace('backend-v', '')
+              clean = raw.lstrip('v')
+              tag = f"backend-v{clean}"
+          elif custom_ver and (bump == 'custom' or not bump):
+              clean = custom_ver.replace('backend-', '').lstrip('v').strip()
+              tag = f"backend-v{clean}"
+          else:
+              subprocess.run(['git', 'fetch', '--tags', '--force'], check=False)
+              res = subprocess.run(['git', 'tag', '-l', 'backend-v*'], capture_output=True, text=True)
+              tags = [t.strip() for t in res.stdout.strip().split('\n') if t.strip()]
+
+              matching = []
+              for t in tags:
+                  if not t.startswith('backend-v'):
+                      continue
+                  raw = t.replace('backend-v', '')
+                  parts = raw.split('.')
+                  if len(parts) == 3 and all(p.isdigit() for p in parts):
+                      matching.append(tuple(map(int, parts)))
+
+              if not matching:
+                  maj, min_, pat = 0, 0, 1
+              else:
+                  matching.sort()
+                  maj, min_, pat = matching[-1]
+                  if bump == 'major':
+                      maj += 1
+                      min_ = 0
+                      pat = 0
+                  elif bump == 'minor':
+                      min_ += 1
+                      pat = 0
+                  else:
+                      pat += 1
+
+              clean = f"{maj}.{min_}.{pat}"
+              tag = f"backend-v{clean}"
+
+          title = f"Dine Master Backend v{clean}"
+          print(f"::notice::Auto-incremented Backend Version: {tag} ({title})")
+
+          gh_out = os.getenv('GITHUB_OUTPUT')
+          if gh_out:
+              with open(gh_out, 'a', encoding='utf-8') as f:
+                  f.write(f"version-name={clean}\n")
+                  f.write(f"tag-name={tag}\n")
+                  f.write(f"release-title={title}\n")
+          EOF
+
+  # =====================================================================
+  # 4. PREPARE RELEASE ARTIFACT
+  # =====================================================================
+  prepare-release-artifact:
+    name: Prepare Backend Release Package
+    needs: [backend-ci, resolve-version]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download backend build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dinemaster-backend-jar
+          path: backend-jar
+
+      - name: Rename JAR with resolved version
+        shell: bash
+        run: |
+          mkdir -p release-artifacts
+          JAR_FILE=$(ls backend-jar/*.jar | grep -v 'original-' | head -n 1)
+          TARGET_NAME="dinemaster-backend-${{ needs.resolve-version.outputs.version-name }}.jar"
+          cp "$JAR_FILE" "release-artifacts/$TARGET_NAME"
+          echo "Prepared release-artifacts/$TARGET_NAME"
+
+      - name: Upload release JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-release-package
+          path: release-artifacts/*
+          retention-days: 14
+
+  # =====================================================================
+  # 5. CREATE GITHUB RELEASE
+  # =====================================================================
+  release:
+    name: Create Backend GitHub Release
+    needs: [resolve-version, prepare-release-artifact]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download backend release package
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-release-package
+          path: release-artifacts
+
+      - name: Inspect backend release artifact
+        shell: bash
+        run: |
+          echo "=== Backend Release Artifact to be published ==="
+          ls -lh release-artifacts/
+
+      - name: Publish GitHub Release (Empty Description, No Release Notes)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.resolve-version.outputs.tag-name }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ needs.resolve-version.outputs.release-title }}
+          body: ""
+          generate_release_notes: false
+          files: release-artifacts/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
