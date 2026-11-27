@@ -19,6 +19,8 @@ services:
         value: https://26-2-dine-master.vercel.app
       - key: GUEST_MENU_BASE_URL
         value: https://26-2-dine-master.vercel.app/guest-menu
+      - key: DATABASE_URL
+        sync: false
       - key: DB_HOST
         sync: false
       - key: DB_PORT

@@ -59,7 +59,7 @@ public class AppStartupValidator implements InitializingBean {
         if (datasourceUrl != null && datasourceUrl.contains("postgresql")
                 && (datasourcePassword == null || datasourcePassword.isBlank())) {
             throw new IllegalStateException(
-                    "DB_PASSWORD is required for PostgreSQL. Set it in %USERPROFILE%\\.dinemaster\\local.env or backend\\.env (gitignored), then restart the backend.");
+                    "Database password is required for PostgreSQL. Set DB_PASSWORD or DATABASE_URL in Render Environment Variables.");
         }
     }
 }
