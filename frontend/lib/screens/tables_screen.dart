@@ -2137,19 +2137,38 @@ class _TablesScreenState extends State<TablesScreen> {
         throw const FormatException('Backend did not return a menu URL');
       }
       final returnedMenuUrl = response['menuUrl'].toString();
-      final parsedMenuUrl = Uri.parse(returnedMenuUrl);
+      var parsedMenuUrl = Uri.parse(returnedMenuUrl);
+      if (parsedMenuUrl.hasFragment) {
+        final fragmentRoute = Uri.tryParse(parsedMenuUrl.fragment);
+        final routePath = fragmentRoute != null &&
+                fragmentRoute.path.startsWith('/')
+            ? fragmentRoute.path
+            : parsedMenuUrl.path;
+        parsedMenuUrl = Uri(
+          scheme: parsedMenuUrl.scheme.isEmpty ? null : parsedMenuUrl.scheme,
+          userInfo: parsedMenuUrl.userInfo.isEmpty
+              ? null
+              : parsedMenuUrl.userInfo,
+          host: parsedMenuUrl.host.isEmpty ? null : parsedMenuUrl.host,
+          port: parsedMenuUrl.hasPort ? parsedMenuUrl.port : null,
+          path: routePath,
+          queryParameters: {
+            ...parsedMenuUrl.queryParameters,
+            if (fragmentRoute != null) ...fragmentRoute.queryParameters,
+          },
+        );
+      }
       final menuUrl = kIsWeb && !parsedMenuUrl.hasScheme
           ? Uri(
               scheme: Uri.base.scheme,
               host: Uri.base.host,
               port: Uri.base.hasPort ? Uri.base.port : null,
               path: parsedMenuUrl.path,
-              query: parsedMenuUrl.hasQuery ? parsedMenuUrl.query : null,
-              fragment: parsedMenuUrl.hasFragment
-                  ? parsedMenuUrl.fragment
-                  : null,
+              queryParameters: parsedMenuUrl.queryParameters.isEmpty
+                  ? null
+                  : parsedMenuUrl.queryParameters,
             ).toString()
-          : returnedMenuUrl;
+          : parsedMenuUrl.toString();
       if (!mounted) return;
       await showDialog<void>(
         context: context,

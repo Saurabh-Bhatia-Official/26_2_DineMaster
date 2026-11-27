@@ -1,3 +1,4 @@
+import 'dart:convert';
 import '../core/platform/io.dart';
 import '../core/platform/video_file_controller.dart';
 import 'package:flutter/material.dart';
@@ -96,40 +97,58 @@ class _RecipeManagementScreenState extends State<RecipeManagementScreen> {
               .toList();
         }
 
-        final recipeResponse = await api.getJson(
-          '/api/recipes?productId=$productId',
-        );
-        final recipeItems = recipeResponse is List
-            ? recipeResponse
-            : <dynamic>[];
-
-        _localRecipe = recipeItems.map<Map<String, dynamic>>((item) {
-          final map = Map<String, dynamic>.from(item as Map);
-          final ingredientValue = map['ingredient'];
-          final ingredient = ingredientValue is Map
-              ? Map<String, dynamic>.from(ingredientValue)
-              : <String, dynamic>{};
-          final ingredientId = ingredient['id'] ?? map['ingredientId'];
-
-          final matchingInventory = _allIngredients.where(
-            (ing) => ing['id'].toString() == ingredientId?.toString(),
-          );
-          final inventoryItem = matchingInventory.isEmpty
-              ? <String, dynamic>{}
-              : matchingInventory.first;
-
-          return {
-            'recipe_id': map['id'],
-            'ingredient_id': ingredientId,
-            'ingredient_name':
-                ingredient['itemName'] ??
-                ingredient['name'] ??
-                inventoryItem['name'] ??
-                'Ingredient $ingredientId',
-            'quantity_used': map['quantityUsed'] ?? map['quantity_used'] ?? 0,
-            'unit': ingredient['unit'] ?? inventoryItem['unit'] ?? '',
-          };
-        }).toList();
+        dynamic recipeResponse;
+        try {
+          recipeResponse = await api.getJson('/api/v1/recipes/$productId');
+        } on BackendApiException catch (error) {
+          // A product without a saved recipe is a valid initial state.
+          if (error.statusCode != 404) rethrow;
+        }
+        if (recipeResponse is Map) {
+          final recipe = Map<String, dynamic>.from(recipeResponse);
+          _prepTimeController.text =
+              (recipe['prepMinutes'] ?? _prepTimeController.text).toString();
+          _cookTimeController.text =
+              (recipe['cookMinutes'] ?? _cookTimeController.text).toString();
+          _servingsController.text =
+              (recipe['portion'] ?? _servingsController.text).toString();
+          _difficulty = recipe['difficulty']?.toString() ?? _difficulty;
+          _videoPath = recipe['videoUrl']?.toString() ?? _videoPath;
+          final rawSteps = recipe['steps'];
+          if (rawSteps is List) {
+            _steps = rawSteps.map((step) => step.toString()).toList();
+          } else if (rawSteps is String && rawSteps.trim().isNotEmpty) {
+            try {
+              final decodedSteps = jsonDecode(rawSteps);
+              _steps = decodedSteps is List
+                  ? decodedSteps.map((step) => step.toString()).toList()
+                  : rawSteps.split('\n').where((step) => step.trim().isNotEmpty).toList();
+            } on FormatException {
+              _steps = rawSteps.split('\n').where((step) => step.trim().isNotEmpty).toList();
+            }
+          }
+          final recipeIngredients = recipe['ingredients'];
+          _localRecipe = recipeIngredients is List
+              ? recipeIngredients.whereType<Map>().map((item) {
+                  final ingredient = Map<String, dynamic>.from(item);
+                  final ingredientId = ingredient['ingredientId'];
+                  final matchingIngredients = _allIngredients
+                      .where((candidate) =>
+                          candidate['id']?.toString() == ingredientId?.toString())
+                      .toList();
+                  final inventoryItem = matchingIngredients.isEmpty
+                      ? null
+                      : matchingIngredients.first;
+                  return {
+                    'ingredient_id': ingredientId,
+                    'ingredient_name': ingredient['name'] ??
+                        inventoryItem?['name'] ?? 'Ingredient $ingredientId',
+                    'quantity_used': ingredient['quantity'] ?? 0,
+                    'unit': ingredient['unit'] ?? inventoryItem?['unit'] ?? '',
+                  };
+                }).toList()
+              : <Map<String, dynamic>>[];
+        }
       } else {
         final db = await DatabaseHelper.instance.database;
 
@@ -298,22 +317,19 @@ class _RecipeManagementScreenState extends State<RecipeManagementScreen> {
           'videoPath': _videoPath,
         });
 
-        final current = await api.getJson(
-          '/api/v1/recipes?productId=$productId',
-        );
-        final existing = current is List ? current : <dynamic>[];
-        for (final row in existing) {
-          if (row is Map && row['id'] is num) {
-            await api.delete('/api/v1/recipes/${row['id']}');
-          }
-        }
-        for (final item in _localRecipe) {
-          await api.postJson('/api/v1/recipes', {
-            'productId': productId,
+        await api.putJson('/api/v1/recipes/$productId', {
+          'steps': jsonEncode(_steps),
+          'prepMinutes': prepTime,
+          'cookMinutes': cookTime,
+          if (servings != null && servings > 0) 'portion': servings,
+          'difficulty': _difficulty,
+          'videoUrl': _videoPath,
+          'ingredients': _localRecipe.map((item) => {
             'ingredientId': item['ingredient_id'],
-            'quantityUsed': item['quantity_used'],
-          });
-        }
+            'quantity': item['quantity_used'],
+            'unit': item['unit'],
+          }).toList(),
+        });
 
         if (mounted) Navigator.pop(context, true);
       } catch (e) {

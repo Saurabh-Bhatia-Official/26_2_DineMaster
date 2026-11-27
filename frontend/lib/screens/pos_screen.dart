@@ -75,6 +75,9 @@ class _PosScreenState extends State<PosScreen>
   String _selectedPaymentType = 'Cash';
   double _discountAmount = 0.0;
   String _discountType = 'Flat'; // Flat or Percentage
+  String _discountRemark = '';
+  String _discountManagerUsername = '';
+  String _discountManagerPin = '';
   int? _editingOrderId;
   double? _backendOrderTotal;
   async.StreamSubscription<String>? _syncSubscription;
@@ -129,9 +132,12 @@ class _PosScreenState extends State<PosScreen>
     super.dispose();
   }
 
-  Future<void> _reopenOrder(int orderId) async {
+  Future<void> _reopenOrder(int orderId, {bool reopenParked = false}) async {
     try {
       if (await _useBackendApi()) {
+        if (reopenParked) {
+          await _orderApiRepository.reopenParked(orderId);
+        }
         final order = await _orderApiRepository.getOrder(orderId);
         final items = await _orderApiRepository.getOrderItems(orderId);
         if (!mounted) return;
@@ -1028,6 +1034,12 @@ class _PosScreenState extends State<PosScreen>
     String? customerName,
     String? customerPhone,
   }) async {
+    if (_discountAmount > 0 && _discountRemark.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Add a remark for the discount first.')),
+      );
+      return;
+    }
     if (_editingOrderId != null) {
       throw StateError('Editing existing online orders is not supported yet');
     }
@@ -1049,14 +1061,23 @@ class _PosScreenState extends State<PosScreen>
       tableId: _selectedTableId,
       type: _selectedOrderType,
       notes: customerName ?? _customerNameController.text.trim(),
-      discountAmount: _getDiscount(),
     );
 
     if (order.id == null) {
       throw StateError('Backend did not return an order ID');
     }
+    if (_discountAmount > 0) {
+      await _orderApiRepository.applyDiscount(
+        order.id!,
+        type: _discountType,
+        value: _discountAmount,
+        remark: _discountRemark.trim(),
+        managerUsername: _discountManagerUsername.trim(),
+        managerPin: _discountManagerPin,
+      );
+    }
     if (hold) {
-      await _orderApiRepository.hold(order.id!);
+      await _orderApiRepository.park(order.id!);
     } else if (_selectedPaymentType != 'Split') {
       await _orderApiRepository.confirmOrder(
         order.id!,
@@ -1072,6 +1093,7 @@ class _PosScreenState extends State<PosScreen>
       _selectedTableId = null;
       _customerNameController.text = 'Walking Customer';
       _customerPhoneController.clear();
+      _discountManagerPin = '';
     });
     await _loadTables();
     await _loadActiveOrders();
@@ -1079,6 +1101,15 @@ class _PosScreenState extends State<PosScreen>
 
   Future<bool> _useBackendApi() async {
     return ApiMode.useBackendApi();
+  }
+
+  String _formatOrderTime(dynamic value) {
+    final raw = value?.toString() ?? '';
+    if (raw.isEmpty) return 'Time unavailable';
+    final parsed = DateTime.tryParse(raw);
+    return parsed == null
+        ? raw
+        : DateFormat('dd MMM, hh:mm a').format(parsed.toLocal());
   }
 
   Future<int?> _findActiveOrderIdForTable(int tableId) async {
@@ -1111,6 +1142,57 @@ class _PosScreenState extends State<PosScreen>
     int? tableId,
     VoidCallback onSuccess,
   ) async {
+    if (await _useBackendApi()) {
+      final reasonController = TextEditingController();
+      final reason = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('Cancel parked order #$orderId'),
+          content: TextField(
+            controller: reasonController,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'Cancellation reason',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Keep order'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () {
+                final value = reasonController.text.trim();
+                if (value.isNotEmpty) Navigator.pop(dialogContext, value);
+              },
+              child: const Text('Cancel order'),
+            ),
+          ],
+        ),
+      );
+      reasonController.dispose();
+      if (reason == null || reason.isEmpty) return;
+      try {
+        await _orderApiRepository.cancel(orderId, reason: reason);
+        onSuccess();
+        await _loadActiveOrders();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Order cancelled.')),
+          );
+        }
+      } catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not cancel order: $error')),
+          );
+        }
+      }
+      return;
+    }
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -1171,6 +1253,22 @@ class _PosScreenState extends State<PosScreen>
           builder: (context, setDialogState) {
             Future<void> reloadData() async {
               try {
+                if (await _useBackendApi()) {
+                  final fetchedKots = await _orderApiRepository.getOrderKots(
+                    orderId,
+                  );
+                  final logMaps = await _orderApiRepository.getOrderTimeline(
+                    orderId,
+                  );
+                  if (context.mounted) {
+                    setDialogState(() {
+                      kots = fetchedKots;
+                      logs = logMaps;
+                      loading = false;
+                    });
+                  }
+                  return;
+                }
                 final db = await DatabaseHelper.instance.database;
 
                 // Fetch KOTs
@@ -1214,6 +1312,9 @@ class _PosScreenState extends State<PosScreen>
                 }
               } catch (e) {
                 print('Error in dialog reload: $e');
+                if (context.mounted) {
+                  setDialogState(() => loading = false);
+                }
               }
             }
 
@@ -1578,17 +1679,14 @@ class _PosScreenState extends State<PosScreen>
       if (restaurantId == null) {
         heldOrders = [];
       } else {
-        final orders = await _orderApiRepository.getOrders(restaurantId);
-        heldOrders = orders.where((order) {
-          final status = order.status.toUpperCase();
-          return status == 'DRAFT' || status == 'CONFIRMED' || status == 'BILLED';
-        }).map((order) {
+        final parked = await _orderApiRepository.getParkedOrders(restaurantId);
+        heldOrders = parked.map((order) {
           final matchingTables = _tables
-              .where((item) => item.id == order.tableId)
+              .where((item) => item.id == order['table_id'])
               .toList();
           final table = matchingTables.isEmpty ? null : matchingTables.first;
           return <String, dynamic>{
-            ...order.toMap(),
+            ...order,
             'table_number': table?.tableNumber,
           };
         }).toList();
@@ -1681,7 +1779,7 @@ class _PosScreenState extends State<PosScreen>
                                     ),
                                     subtitle: Text(
                                       'Customer: ${order['customer_name'] ?? 'N/A'}\n'
-                                      'Amount: ₹${order['total_amount'].toStringAsFixed(2)} | ${order['order_time'].toString().substring(0, 16).replaceFirst('T', ' ')}',
+                                      'Amount: ₹${(order['total_amount'] as num? ?? 0).toDouble().toStringAsFixed(2)} | ${_formatOrderTime(order['order_time'])}',
                                     ),
                                     isThreeLine: true,
                                     trailing: Row(
@@ -1721,7 +1819,10 @@ class _PosScreenState extends State<PosScreen>
                                               final orderId =
                                                   (order['id'] as num).toInt();
                                               Navigator.pop(context);
-                                              await _reopenOrder(orderId);
+                                              await _reopenOrder(
+                                                orderId,
+                                                reopenParked: true,
+                                              );
                                               return;
                                             }
                                             // Load items into cart
@@ -3297,6 +3398,13 @@ class _PosScreenState extends State<PosScreen>
 
   void _showDiscountDialog() {
     final controller = TextEditingController(text: _discountAmount.toString());
+    final remarkController = TextEditingController(text: _discountRemark);
+    final managerUsernameController = TextEditingController(
+      text: _discountManagerUsername,
+    );
+    final managerPinController = TextEditingController(
+      text: _discountManagerPin,
+    );
     String type = _discountType;
 
     showDialog(
@@ -3322,6 +3430,23 @@ class _PosScreenState extends State<PosScreen>
                 ),
                 keyboardType: TextInputType.number,
               ),
+              TextField(
+                controller: remarkController,
+                decoration: const InputDecoration(labelText: 'Discount remark *'),
+              ),
+              TextField(
+                controller: managerUsernameController,
+                decoration: const InputDecoration(
+                  labelText: 'Manager username (if approval is required)',
+                ),
+              ),
+              TextField(
+                controller: managerPinController,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Manager PIN (if approval is required)',
+                ),
+              ),
             ],
           ),
           actions: [
@@ -3331,9 +3456,19 @@ class _PosScreenState extends State<PosScreen>
             ),
             ElevatedButton(
               onPressed: () {
+                final amount = double.tryParse(controller.text) ?? 0.0;
+                if (amount > 0 && remarkController.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Enter a discount remark.')),
+                  );
+                  return;
+                }
                 this.setState(() {
-                  _discountAmount = double.tryParse(controller.text) ?? 0.0;
+                  _discountAmount = amount;
                   _discountType = type;
+                  _discountRemark = remarkController.text.trim();
+                  _discountManagerUsername = managerUsernameController.text.trim();
+                  _discountManagerPin = managerPinController.text;
                 });
                 Navigator.pop(context);
               },
