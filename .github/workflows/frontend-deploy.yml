@@ -1,0 +1,128 @@
+name: Frontend CI & Vercel Deployment
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'frontend/**'
+      - 'vercel.json'
+      - '.github/workflows/frontend-deploy.yml'
+      - '.github/workflows/build.yml'
+  pull_request:
+    branches:
+      - main
+      - master
+    paths:
+      - 'frontend/**'
+      - 'vercel.json'
+  workflow_dispatch:
+
+concurrency:
+  group: frontend-deploy-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  frontend-ci:
+    name: Frontend Code Analysis & Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Prepare environment file
+        shell: bash
+        run: |
+          if [ -f .env.example ]; then
+            cp .env.example .env
+          else
+            touch .env
+          fi
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze code (flutter analyze)
+        run: flutter analyze
+
+      - name: Run unit & widget tests
+        run: flutter test
+
+  build-web:
+    name: Build Web Application
+    needs: frontend-ci
+    uses: ./.github/workflows/build.yml
+    with:
+      runner: ubuntu-latest
+      platform: web
+      archive-name: dine-master
+      version-name: 1.0.0
+      build-number: ${{ github.run_number }}
+    secrets: inherit
+
+  deploy-vercel:
+    name: Deploy Frontend to Vercel (Production)
+    needs: [frontend-ci, build-web]
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download web build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dine-master-web
+          path: dist-web
+
+      - name: Extract web build artifacts
+        shell: bash
+        run: |
+          mkdir -p frontend/build/web
+          if [ -f dist-web/dine-master-web.tar.gz ]; then
+            tar -xzf dist-web/dine-master-web.tar.gz -C frontend/build/web
+          elif [ -f dist-web/dine-master-web.zip ]; then
+            unzip -q dist-web/dine-master-web.zip -d frontend/build/web
+          fi
+          cp vercel.json frontend/build/web/vercel.json 2>/dev/null || cp frontend/vercel.json frontend/build/web/vercel.json 2>/dev/null || true
+
+      - name: Deploy to Vercel (Production)
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::warning::VERCEL_TOKEN secret is not configured; skipping Vercel deployment."
+            exit 0
+          fi
+
+          echo "Installing Vercel CLI..."
+          npm install -g vercel@latest
+
+          cd frontend/build/web
+          if [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ]; then
+            mkdir -p .vercel
+            printf '{\n  "orgId": "%s",\n  "projectId": "%s"\n}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          fi
+
+          echo "Deploying production web build to Vercel..."
+          vercel deploy --prod --yes --token="$VERCEL_TOKEN"
+          echo "Vercel production deployment completed successfully."

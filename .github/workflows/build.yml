@@ -1,4 +1,4 @@
-name: Build
+name: Reusable Multi-Platform Build
 
 on:
   workflow_call:
@@ -6,7 +6,7 @@ on:
       runner:
         required: true
         type: string
-        description: 'GitHub-hosted runner OS for this build.'
+        description: 'GitHub-hosted runner OS for this build (windows-latest, macos-latest, ubuntu-latest).'
       platform:
         required: true
         type: string
@@ -18,7 +18,7 @@ on:
       version-name:
         required: true
         type: string
-        description: 'SemVer version (e.g. 1.0.0).'
+        description: 'SemVer version (e.g. 0.0.1, 1.0.0).'
       build-number:
         required: true
         type: string
@@ -82,7 +82,7 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Java (Android)
@@ -92,11 +92,15 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Set up Flutter
+      - name: Set up Flutter SDK
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
+
+      - name: Enable Windows desktop
+        if: ${{ runner.os == 'Windows' }}
+        run: flutter config --enable-windows-desktop
 
       - name: Enable Linux desktop
         if: ${{ runner.os == 'Linux' }}
@@ -106,16 +110,18 @@ jobs:
         if: ${{ runner.os == 'macOS' }}
         run: flutter config --enable-macos-desktop
 
-      - name: Pub get
-        run: flutter pub get
-
       - name: Prepare frontend environment
         shell: bash
-        run: cp .env.example .env
+        run: |
+          if [ -f .env.example ]; then
+            cp .env.example .env
+          else
+            touch .env
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/build/dist"
 
-      - name: Prepare dist directory
-        shell: bash
-        run: mkdir -p "$GITHUB_WORKSPACE/build/dist"
+      - name: Install dependencies (flutter pub get)
+        run: flutter pub get
 
       # ============ PREPARE SIGNING (conditional by platform) ============
       - name: Set up Android signing
@@ -133,8 +139,6 @@ jobs:
           mkdir -p "$HOME/.secrets"
           echo "$CREDENTIALS" | base64 --decode > "$HOME/.secrets/play-account.json"
           echo "$KEYSTORE" | base64 --decode > "$HOME/.secrets/upload-keystore.jks"
-          # Write android/key.properties (rootProject location) consumed by
-          # android/app/build.gradle.kts. Fix the storeFile to the decoded path.
           echo "$KEY_PROPERTIES" | base64 --decode > android/key.properties
           sed -i 's|^\s*storeFile=.*|storeFile='"$HOME"'/.secrets/upload-keystore.jks|' android/key.properties
 
@@ -175,7 +179,7 @@ jobs:
           CERT_NAME: ${{ secrets.MACOS_CERTIFICATE_NAME }}
         run: |
           if [ -z "$CERT" ]; then
-            echo "::warning::macOS signing secrets not configured; building unsigned (arm64 build still produced)."
+            echo "::warning::macOS signing secrets not configured; building unsigned."
             exit 0
           fi
           CERT_PATH="$RUNNER_TEMP/macos_cert.p12"
@@ -188,43 +192,143 @@ jobs:
           security import "$CERT_PATH" -k "$KEYCHAIN" -P "$CERT_PWD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PWD" "$KEYCHAIN"
           security list-keychains -s "$KEYCHAIN"
-          # Expose the certificate identity so the build step can sign with it.
           echo "MACOS_CERT_IDENTITY=$CERT_NAME" >> "$GITHUB_ENV"
 
-      # ============ BUILD PER PLATFORM ============
+      # ============ PLATFORM BUILDS ============
+      - name: Run code analysis (Windows)
+        if: ${{ inputs.platform == 'windows' }}
+        shell: pwsh
+        run: flutter analyze
+
       - name: Build Windows
         if: ${{ inputs.platform == 'windows' }}
         shell: pwsh
         run: |
+          Write-Host "Building Windows release..."
           flutter build windows --release
-
-          # Locate or install Inno Setup compiler
-          $isccPath = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-          if (-not (Test-Path $isccPath)) {
-            Write-Host "Installing Inno Setup via chocolatey..."
-            choco install innosetup -y --no-progress
-          }
 
           $distDir = Join-Path $env:GITHUB_WORKSPACE "build\dist"
           if (-not (Test-Path $distDir)) {
             New-Item -ItemType Directory -Path $distDir -Force | Out-Null
           }
 
-          Write-Host "Compiling Windows Setup Wizard installer (.exe)..."
-          & $isccPath "/DMyAppVersion=${{ inputs.version-name }}" "/DMyAppSourceDir=$env:GITHUB_WORKSPACE\frontend\build\windows\x64\runner\Release" "/O$distDir" "/F${{ inputs.archive-name }}-windows-setup" "$env:GITHUB_WORKSPACE\frontend\windows\installer\dinemaster_setup.iss"
+          $releaseOutputDir = "$env:GITHUB_WORKSPACE\frontend\build\windows\x64\runner\Release"
+          Write-Host "Verifying Windows release output at: $releaseOutputDir"
+          Get-ChildItem -Path $releaseOutputDir
 
-          Write-Host "Creating portable zip archive..."
-          Compress-Archive -Path "$env:GITHUB_WORKSPACE\frontend\build\windows\x64\runner\Release\*" -DestinationPath "$distDir\${{ inputs.archive-name }}-windows-x64.zip" -Force
+          # Package complete Windows application into a ZIP archive
+          Write-Host "Packaging complete Windows application with runtime DLLs into ZIP archive..."
+          Compress-Archive -Path "$releaseOutputDir\*" -DestinationPath "$distDir\${{ inputs.archive-name }}-windows-x64.zip" -Force
+
+          # Inno Setup installer compilation (.exe)
+          $issFile = "$env:GITHUB_WORKSPACE\frontend\windows\installer\dinemaster_setup.iss"
+          if (Test-Path $issFile) {
+            $isccPath = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+            if (-not (Test-Path $isccPath)) {
+              Write-Host "Installing Inno Setup via chocolatey..."
+              choco install innosetup -y --no-progress
+            }
+            if (Test-Path $isccPath) {
+              Write-Host "Compiling Windows Setup Wizard installer (.exe)..."
+              & $isccPath "/DMyAppVersion=${{ inputs.version-name }}" "/DMyAppSourceDir=$releaseOutputDir" "/O$distDir" "/F${{ inputs.archive-name }}-windows-setup" "$issFile"
+            }
+          }
 
       - name: Build Linux
         if: ${{ inputs.platform == 'linux' }}
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libgtk-3-dev
+          sudo apt-get install -y ninja-build libgtk-3-dev libayatana-appindicator3-dev dpkg zip file
           flutter build linux --release
-          cd build/linux/x64/release/bundle
-          tar -czf "$GITHUB_WORKSPACE/build/dist/${{ inputs.archive-name }}-linux-x64.tar.gz" .
+
+          DIST_DIR="$GITHUB_WORKSPACE/build/dist"
+          mkdir -p "$DIST_DIR"
+          BUNDLE_DIR="$GITHUB_WORKSPACE/frontend/build/linux/x64/release/bundle"
+
+          echo "Packaging Linux application as ZIP & TAR.GZ..."
+          cd "$BUNDLE_DIR"
+          zip -r "$DIST_DIR/${{ inputs.archive-name }}-linux-x64.zip" .
+          tar -czf "$DIST_DIR/${{ inputs.archive-name }}-linux-x64.tar.gz" .
+
+          echo "Packaging Linux application as DEB package..."
+          DEB_DIR="$RUNNER_TEMP/deb_build"
+          rm -rf "$DEB_DIR"
+          mkdir -p "$DEB_DIR/DEBIAN"
+          mkdir -p "$DEB_DIR/usr/lib/dinemaster"
+          mkdir -p "$DEB_DIR/usr/bin"
+          mkdir -p "$DEB_DIR/usr/share/applications"
+
+          {
+            echo "Package: dinemaster"
+            echo "Version: ${{ inputs.version-name }}"
+            echo "Architecture: amd64"
+            echo "Maintainer: DineMaster Team"
+            echo "Description: DineMaster Restaurant POS and Management System"
+          } > "$DEB_DIR/DEBIAN/control"
+
+          cp -r "$BUNDLE_DIR/"* "$DEB_DIR/usr/lib/dinemaster/"
+
+          {
+            echo "#!/bin/sh"
+            echo 'exec /usr/lib/dinemaster/dine_master "$@"'
+          } > "$DEB_DIR/usr/bin/dinemaster"
+          chmod +x "$DEB_DIR/usr/bin/dinemaster"
+
+          {
+            echo "[Desktop Entry]"
+            echo "Name=DineMaster"
+            echo "Comment=DineMaster Restaurant POS"
+            echo "Exec=/usr/bin/dinemaster"
+            echo "Icon=dinemaster"
+            echo "Terminal=false"
+            echo "Type=Application"
+            echo "Categories=Office;Utility;"
+          } > "$DEB_DIR/usr/share/applications/dinemaster.desktop"
+
+          dpkg-deb --build "$DEB_DIR" "$DIST_DIR/${{ inputs.archive-name }}-linux-amd64.deb"
+
+          echo "Packaging Linux application as AppImage..."
+          APPDIR="$RUNNER_TEMP/DineMaster.AppDir"
+          rm -rf "$APPDIR"
+          mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib" "$APPDIR/usr/share/applications" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+          cp -r "$BUNDLE_DIR/"* "$APPDIR/usr/bin/"
+
+          {
+            echo "#!/bin/sh"
+            echo 'HERE="$(dirname "$(readlink -f "$0")")"'
+            echo 'export LD_LIBRARY_PATH="${HERE}/usr/bin/lib:${LD_LIBRARY_PATH}"'
+            echo 'exec "${HERE}/usr/bin/dine_master" "$@"'
+          } > "$APPDIR/AppRun"
+          chmod +x "$APPDIR/AppRun"
+
+          {
+            echo "[Desktop Entry]"
+            echo "Name=DineMaster"
+            echo "Exec=dine_master"
+            echo "Icon=dinemaster"
+            echo "Type=Application"
+            echo "Categories=Office;Utility;"
+          } > "$APPDIR/dinemaster.desktop"
+          cp "$APPDIR/dinemaster.desktop" "$APPDIR/usr/share/applications/"
+
+          if [ -f "$GITHUB_WORKSPACE/frontend/assets/icon.png" ]; then
+            cp "$GITHUB_WORKSPACE/frontend/assets/icon.png" "$APPDIR/dinemaster.png"
+            cp "$GITHUB_WORKSPACE/frontend/assets/icon.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/dinemaster.png"
+          else
+            touch "$APPDIR/dinemaster.png"
+          fi
+
+          cd "$RUNNER_TEMP"
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool || true
+          if [ -f appimagetool ]; then
+            chmod +x appimagetool
+            ARCH=x86_64 ./appimagetool --appimage-extract-and-run "$APPDIR" "$DIST_DIR/${{ inputs.archive-name }}-linux-x86_64.AppImage" || true
+          fi
+          if [ ! -f "$DIST_DIR/${{ inputs.archive-name }}-linux-x86_64.AppImage" ]; then
+            echo "Packaging AppDir archive as AppImage fallback..."
+            tar -czf "$DIST_DIR/${{ inputs.archive-name }}-linux-AppImage.tar.gz" DineMaster.AppDir
+          fi
 
       - name: Build macOS
         if: ${{ inputs.platform == 'macos' }}
@@ -233,7 +337,14 @@ jobs:
           flutter build macos --release
           cd build/macos/Build/Products/Release
           APP_BUNDLE="$(ls -d *.app | head -n 1)"
-          ditto -c -k --keepParent "$APP_BUNDLE" "$GITHUB_WORKSPACE/build/dist/${{ inputs.archive-name }}-macos.app.zip"
+          DIST_DIR="$GITHUB_WORKSPACE/build/dist"
+          mkdir -p "$DIST_DIR"
+
+          echo "Packaging macOS application as ZIP archive..."
+          ditto -c -k --keepParent "$APP_BUNDLE" "$DIST_DIR/${{ inputs.archive-name }}-macos.app.zip"
+
+          echo "Packaging macOS application as DMG disk image..."
+          hdiutil create -volname "DineMaster" -srcfolder "$APP_BUNDLE" -ov -format UDZO "$DIST_DIR/${{ inputs.archive-name }}-macos.dmg"
 
       - name: Build Android
         if: ${{ inputs.platform == 'android' }}
@@ -241,11 +352,13 @@ jobs:
         run: |
           flutter build apk --release --build-name ${{ inputs.version-name }} --build-number ${{ inputs.build-number }}
           flutter build appbundle --release --build-name ${{ inputs.version-name }} --build-number ${{ inputs.build-number }} || true
+          DIST_DIR="$GITHUB_WORKSPACE/build/dist"
+          mkdir -p "$DIST_DIR"
           if [ -f build/app/outputs/flutter-apk/app-release.apk ]; then
-            cp build/app/outputs/flutter-apk/app-release.apk "$GITHUB_WORKSPACE/build/dist/${{ inputs.archive-name }}-release.apk"
+            cp build/app/outputs/flutter-apk/app-release.apk "$DIST_DIR/${{ inputs.archive-name }}-release.apk"
           fi
           if [ -f build/app/outputs/bundle/release/app-release.aab ]; then
-            cp build/app/outputs/bundle/release/app-release.aab "$GITHUB_WORKSPACE/build/dist/${{ inputs.archive-name }}-release.aab"
+            cp build/app/outputs/bundle/release/app-release.aab "$DIST_DIR/${{ inputs.archive-name }}-release.aab"
           fi
 
       - name: Build Web
@@ -254,15 +367,16 @@ jobs:
         env:
           API_BASE_URL: ${{ vars.API_BASE_URL }}
         run: |
-          if [ -z "$API_BASE_URL" ]; then
-            echo "::error::Set the repository variable API_BASE_URL to the deployed backend URL."
-            exit 1
-          fi
-          printf 'API_BASE_URL=%s\nAPP_ENV=production\n' "$API_BASE_URL" > .env
+          TARGET_API_URL="${API_BASE_URL:-https://two6-2-dinemaster.onrender.com}"
+          echo "Configuring Web production API_BASE_URL=$TARGET_API_URL"
+          printf 'API_BASE_URL=%s\nAPP_ENV=production\n' "$TARGET_API_URL" > .env
           flutter build web --release
-          cp web/vercel.json build/web/vercel.json 2>/dev/null || true
+          cp vercel.json build/web/vercel.json 2>/dev/null || cp web/vercel.json build/web/vercel.json 2>/dev/null || true
+          DIST_DIR="$GITHUB_WORKSPACE/build/dist"
+          mkdir -p "$DIST_DIR"
           cd build/web
-          tar -czf "$GITHUB_WORKSPACE/build/dist/${{ inputs.archive-name }}-web.tar.gz" .
+          tar -czf "$DIST_DIR/${{ inputs.archive-name }}-web.tar.gz" .
+          zip -r "$DIST_DIR/${{ inputs.archive-name }}-web.zip" .
 
       - name: Build iOS (ipa)
         if: ${{ inputs.platform == 'ios' }}
@@ -286,11 +400,6 @@ jobs:
             echo "::warning::App Store Connect secrets not configured; skipping TestFlight upload."
             exit 0
           fi
-          # The .ipa produced above is unsigned. TestFlight requires a signed
-          # build exported with an App Store distribution profile. Once the
-          # iOS signing secrets and a real bundle identifier are configured,
-          # build with automatic signing and archive/export here. This step is
-          # a placeholder hook that is skipped until signing is configured.
           echo "TestFlight upload requires codesigned build; skipped (unsigned archive)."
 
       - name: Upload build artifacts

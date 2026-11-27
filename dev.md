@@ -324,8 +324,11 @@ POS Terminal — Shelf Server (Host · port 8080)
 ├── web/                      # Web platform files
 ├── test/                     # Unit & widget tests
 ├── .github/workflows/        # GitHub Actions CI/CD pipelines
-│   ├── release.yml           # Release, Vercel & Render deployment pipeline
-│   └── build.yml             # Reusable: multi-platform build (Android APK/AAB, Web, Win, Mac, iOS, Linux)
+│   ├── frontend-deploy.yml   # Frontend CI & Vercel deployment pipeline
+│   ├── backend-deploy.yml    # Backend CI & Render deployment pipeline
+│   ├── frontend-release.yml  # Frontend multi-platform automated release (Windows, macOS, Linux, Android, iOS, Web)
+│   ├── backend-release.yml   # Backend automated release (Standalone executable JAR)
+│   └── build.yml             # Reusable: multi-platform build (Windows, macOS, Linux, Android, iOS, Web)
 ├── pubspec.yaml              # Flutter dependencies & assets
 ├── analysis_options.yaml     # Dart lint configuration
 ├── frontend/docs/database.md               # SQLite schema reference
@@ -490,10 +493,15 @@ cd backend && .\mvnw.cmd test
 The project follows **`Major.Minor.Patch`** semantic versioning. Current version: **`1.0.0+1`** (defined in `pubspec.yaml`).
 
 ```bash
-# Tag and release
-git tag v1.0.0
-git push origin v1.0.0
-# Triggers release.yml: analyze → test → build all platforms → GitHub Release
+# Tag and release frontend (starting with v0.0.1)
+git tag v0.0.1
+git push origin v0.0.1
+# Triggers frontend-release.yml: builds all platforms → GitHub Release with artifacts
+
+# Tag and release backend (e.g. backend-v0.0.1)
+git tag backend-v0.0.1
+git push origin backend-v0.0.1
+# Triggers backend-release.yml: builds JAR → GitHub Release with JAR artifact
 ```
 
 ---

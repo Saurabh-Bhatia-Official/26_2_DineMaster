@@ -1,0 +1,200 @@
+name: Frontend Multi-Platform Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - 'frontend-v*'
+  workflow_dispatch:
+    inputs:
+      version-tag:
+        description: 'Release version tag (starting with v0.0.1, e.g. v0.0.1, v1.0.0)'
+        required: false
+        default: 'v0.0.1'
+
+concurrency:
+  group: frontend-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  resolve-version:
+    name: Resolve Release Version
+    runs-on: ubuntu-latest
+    outputs:
+      version-name: ${{ steps.resolve.outputs.version-name }}
+      tag-name: ${{ steps.resolve.outputs.tag-name }}
+      release-title: ${{ steps.resolve.outputs.release-title }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve version and tag
+        id: resolve
+        shell: bash
+        run: |
+          REF_NAME="${{ github.ref_name }}"
+          INPUT_TAG="${{ inputs.version-tag }}"
+
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && -n "$INPUT_TAG" ]]; then
+            RAW="$INPUT_TAG"
+          elif [[ "$REF_NAME" == v* ]]; then
+            RAW="$REF_NAME"
+          elif [[ "$REF_NAME" == frontend-v* ]]; then
+            RAW="${REF_NAME#frontend-}"
+          else
+            PUB_VER=$(grep '^version:' frontend/pubspec.yaml | sed 's/version:[[:space:]]*//; s/+.*//; s/[[:space:]]//g' 2>/dev/null || true)
+            RAW="${PUB_VER:-0.0.1}"
+          fi
+
+          CLEAN_VER="${RAW#v}"
+          CLEAN_VER="${CLEAN_VER:-0.0.1}"
+          TAG_VER="v${CLEAN_VER}"
+          TITLE="Dine Master ${TAG_VER}"
+
+          echo "version-name=${CLEAN_VER}" >> "$GITHUB_OUTPUT"
+          echo "tag-name=${TAG_VER}" >> "$GITHUB_OUTPUT"
+          echo "release-title=${TITLE}" >> "$GITHUB_OUTPUT"
+          echo "::notice::Resolved version name: ${CLEAN_VER}, tag: ${TAG_VER}, title: ${TITLE}"
+
+  build-windows:
+    name: Build Windows (Desktop)
+    needs: resolve-version
+    uses: ./.github/workflows/build.yml
+    with:
+      runner: windows-latest
+      platform: windows
+      archive-name: dine-master
+      version-name: ${{ needs.resolve-version.outputs.version-name }}
+      build-number: ${{ github.run_number }}
+    secrets: inherit
+
+  build-macos:
+    name: Build macOS (DMG & ZIP)
+    needs: resolve-version
+    uses: ./.github/workflows/build.yml
+    with:
+      runner: macos-latest
+      platform: macos
+      archive-name: dine-master
+      version-name: ${{ needs.resolve-version.outputs.version-name }}
+      build-number: ${{ github.run_number }}
+    secrets: inherit
+
+  build-linux:
+    name: Build Linux (DEB, ZIP & AppImage)
+    needs: resolve-version
+    uses: ./.github/workflows/build.yml
+    with:
+      runner: ubuntu-latest
+      platform: linux
+      archive-name: dine-master
+      version-name: ${{ needs.resolve-version.outputs.version-name }}
+      build-number: ${{ github.run_number }}
+    secrets: inherit
+
+  build-android:
+    name: Build Android (APK & AAB)
+    needs: resolve-version
+    uses: ./.github/workflows/build.yml
+    with:
+      runner: ubuntu-latest
+      platform: android
+      archive-name: dine-master
+      version-name: ${{ needs.resolve-version.outputs.version-name }}
+      build-number: ${{ github.run_number }}
+    secrets: inherit
+
+  build-ios:
+    name: Build iOS (IPA)
+    needs: resolve-version
+    uses: ./.github/workflows/build.yml
+    with:
+      runner: macos-latest
+      platform: ios
+      archive-name: dine-master
+      version-name: ${{ needs.resolve-version.outputs.version-name }}
+      build-number: ${{ github.run_number }}
+      upload-ios: false
+    secrets: inherit
+
+  build-web:
+    name: Build Web (Production Bundle)
+    needs: resolve-version
+    uses: ./.github/workflows/build.yml
+    with:
+      runner: ubuntu-latest
+      platform: web
+      archive-name: dine-master
+      version-name: ${{ needs.resolve-version.outputs.version-name }}
+      build-number: ${{ github.run_number }}
+    secrets: inherit
+
+  release:
+    name: Create GitHub Release
+    needs:
+      - resolve-version
+      - build-windows
+      - build-macos
+      - build-linux
+      - build-android
+      - build-ios
+      - build-web
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Inspect release artifacts
+        shell: bash
+        run: |
+          echo "=== Release Artifacts to be published ==="
+          find release-artifacts -type f -exec ls -lh {} +
+
+      - name: Publish GitHub Release (Empty Description, No Release Notes)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.resolve-version.outputs.tag-name }}
+          name: ${{ needs.resolve-version.outputs.release-title }}
+          body: ""
+          generate_release_notes: false
+          files: release-artifacts/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for Public Release Repository Secrets
+        id: check_public_secrets
+        shell: bash
+        env:
+          PUBLIC_RELEASE_REPO: ${{ secrets.PUBLIC_RELEASE_REPO }}
+          PUBLIC_REPO_PAT: ${{ secrets.PUBLIC_REPO_PAT }}
+        run: |
+          if [ -n "$PUBLIC_RELEASE_REPO" ] && [ -n "$PUBLIC_REPO_PAT" ]; then
+            echo "has_public_secrets=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_public_secrets=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to Public Release Repository (Empty Description)
+        if: steps.check_public_secrets.outputs.has_public_secrets == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: ${{ secrets.PUBLIC_RELEASE_REPO }}
+          token: ${{ secrets.PUBLIC_REPO_PAT }}
+          tag_name: ${{ needs.resolve-version.outputs.tag-name }}
+          name: ${{ needs.resolve-version.outputs.release-title }}
+          body: ""
+          generate_release_notes: false
+          files: release-artifacts/*
