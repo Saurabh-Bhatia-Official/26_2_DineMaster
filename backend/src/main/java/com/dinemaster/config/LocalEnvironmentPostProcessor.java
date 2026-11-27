@@ -129,25 +129,44 @@ public class LocalEnvironmentPostProcessor implements EnvironmentPostProcessor {
         }
     }
 
+    public static String cleanDatabaseUrl(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String cleaned = raw.trim();
+        // Remove 'psql ' prefix if user pasted a CLI command directly from database provider (e.g. Neon)
+        if (cleaned.toLowerCase().startsWith("psql ")) {
+            cleaned = cleaned.substring(5).trim();
+        }
+        // Remove surrounding single or double quotes
+        while ((cleaned.startsWith("'") && cleaned.endsWith("'")) ||
+               (cleaned.startsWith("\"") && cleaned.endsWith("\""))) {
+            cleaned = cleaned.substring(1, cleaned.length() - 1).trim();
+        }
+        return cleaned;
+    }
+
     public static ParsedDatabaseUrl parseDatabaseUrl(String rawUrl) {
         if (rawUrl == null || rawUrl.isBlank()) {
             return new ParsedDatabaseUrl("", null, null, null);
         }
 
+        String cleanedUrl = cleanDatabaseUrl(rawUrl);
+
         // 1. If already in JDBC format
-        if (rawUrl.startsWith("jdbc:")) {
+        if (cleanedUrl.startsWith("jdbc:")) {
             String host = null;
             try {
-                String sub = rawUrl.substring(5); // strip "jdbc:"
+                String sub = cleanedUrl.substring(5); // strip "jdbc:"
                 URI uri = URI.create(sub);
                 host = uri.getHost();
             } catch (Exception ignored) {}
-            return new ParsedDatabaseUrl(rawUrl, host, null, null);
+            return new ParsedDatabaseUrl(cleanedUrl, host, null, null);
         }
 
         // 2. Parse postgres:// or postgresql:// URI
         try {
-            URI uri = URI.create(rawUrl);
+            URI uri = URI.create(cleanedUrl);
             String scheme = uri.getScheme();
             if ("postgres".equalsIgnoreCase(scheme) || "postgresql".equalsIgnoreCase(scheme)) {
                 String host = uri.getHost();

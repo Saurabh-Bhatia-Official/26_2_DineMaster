@@ -21,6 +21,17 @@ class LocalEnvironmentPostProcessorTest {
     }
 
     @Test
+    void parseDatabaseUrlHandlesPsqlPrefixAndQuotes() {
+        String raw = "psql 'postgresql://dine_master_owner:npg_peGDaqjO5Ex7@ep-odd-recipe-a7c0q9ag-pooler.ap-southeast-2.aws.neon.tech/dine_master?sslmode=require&channel_binding=require'";
+        LocalEnvironmentPostProcessor.ParsedDatabaseUrl parsed = LocalEnvironmentPostProcessor.parseDatabaseUrl(raw);
+
+        assertEquals("jdbc:postgresql://ep-odd-recipe-a7c0q9ag-pooler.ap-southeast-2.aws.neon.tech:5432/dine_master?sslmode=require&channel_binding=require", parsed.jdbcUrl);
+        assertEquals("ep-odd-recipe-a7c0q9ag-pooler.ap-southeast-2.aws.neon.tech", parsed.host);
+        assertEquals("dine_master_owner", parsed.username);
+        assertEquals("npg_peGDaqjO5Ex7", parsed.password);
+    }
+
+    @Test
     void parseDatabaseUrlDecodesSpecialCharactersInCredentials() {
         String raw = "postgresql://user%40domain.com:p%40ss%23word%21@dpg-c0123456789-a.oregon-postgres.render.com/dinemaster";
         LocalEnvironmentPostProcessor.ParsedDatabaseUrl parsed = LocalEnvironmentPostProcessor.parseDatabaseUrl(raw);
