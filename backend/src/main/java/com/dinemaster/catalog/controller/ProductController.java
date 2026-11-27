@@ -28,6 +28,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.util.MultiValueMap;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -37,6 +39,7 @@ import com.dinemaster.user.entity.User;
 @RestController
 @RequestMapping("/api/v1/products")
 public class ProductController {
+    private static final Logger log = LoggerFactory.getLogger(ProductController.class);
 
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
@@ -245,6 +248,7 @@ public class ProductController {
         } catch (ImageStorageService.StorageUnavailableException e) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of("error", "Image storage is not configured"));
         } catch (Exception e) {
+            log.error("Image upload failed for product id={}", product.getId(), e);
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                     .body(Map.of("error", "Could not upload product image"));
         }

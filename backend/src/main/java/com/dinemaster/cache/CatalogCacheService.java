@@ -43,7 +43,7 @@ public class CatalogCacheService {
     }
 
     @Cacheable(cacheNames = CacheConfig.BRANCH_CATALOG,
-            key = "'tenant:' + #tenantId + ':branch:' + #branchId", sync = true)
+            key = "'tenant:' + #tenantId + ':branch:' + #branchId")
     @Transactional(readOnly = true)
     public MenuCacheResponse branchMenu(Long tenantId, Long branchId) {
         Map<Long, BranchProduct> configs = new HashMap<>();
@@ -70,7 +70,7 @@ public class CatalogCacheService {
     }
 
     @Cacheable(cacheNames = CacheConfig.GUEST_MENU,
-            key = "'tenant:' + #tenantId + ':branch:' + #branchId", sync = true)
+            key = "'tenant:' + #tenantId + ':branch:' + #branchId")
     @Transactional(readOnly = true)
     public MenuCacheResponse.GuestMenu guestMenu(Long tenantId, Long branchId) {
         Map<Long, BranchProduct> configs = new HashMap<>();
@@ -91,7 +91,7 @@ public class CatalogCacheService {
     }
 
     @Cacheable(cacheNames = CacheConfig.BRANCH_AVAILABILITY,
-            key = "'tenant:' + #tenantId + ':branch:' + #branchId", sync = true)
+            key = "'tenant:' + #tenantId + ':branch:' + #branchId")
     @Transactional(readOnly = true)
     public MenuCacheResponse.BranchAvailability branchAvailability(Long tenantId, Long branchId) {
         Map<Long, BranchProduct> configs = new HashMap<>();
@@ -109,7 +109,7 @@ public class CatalogCacheService {
         return new MenuCacheResponse.BranchAvailability(availabilityItems);
     }
 
-    @Cacheable(cacheNames = CacheConfig.CATEGORIES, key = "'tenant:' + #tenantId", sync = true)
+    @Cacheable(cacheNames = CacheConfig.CATEGORIES, key = "'tenant:' + #tenantId")
     @Transactional(readOnly = true)
     public CategoryResponse.ListResponse categoryList(Long tenantId) {
         List<CategoryResponse> rows = categories
@@ -139,7 +139,7 @@ public class CatalogCacheService {
     }
 
     @Cacheable(cacheNames = CacheConfig.BRANCH_HOURS,
-            key = "'tenant:' + #tenantId + ':branch:' + #branchId", sync = true)
+            key = "'tenant:' + #tenantId + ':branch:' + #branchId")
     @Transactional(readOnly = true)
     public BranchHoursResponse hours(Long tenantId, Long branchId) {
         List<BranchHoursResponse.BranchHour> rows = branchHours.findAllByBranchIdOrderByWeekday(branchId).stream()

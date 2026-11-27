@@ -30,7 +30,7 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtFilter;
     private final ObjectMapper objectMapper;
-    @Value("${dinemaster.cors.allowed-origins:https://26-2-dine-master.vercel.app,https://26-2-dine-master.vercel.app/,https://two6-2-dinemaster.onrender.com}")
+    @Value("${dinemaster.cors.allowed-origins:https://26-2-dine-master.vercel.app,https://26-2-dine-master.vercel.app/}")
     private String corsAllowedOrigins;
     @Value("${dinemaster.guest.allowed-origin:}")
     private String guestAllowedOrigin;

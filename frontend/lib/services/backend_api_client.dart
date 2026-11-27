@@ -80,7 +80,12 @@ class BackendApiClient {
 
     // Prevent localhost URLs from being used in production
     if (ApiConfig.isProduction && ApiConfig.isLocalhost(baseUrl)) {
-      baseUrl = ApiConfig.productionBackendUrl;
+      baseUrl = ApiConfig.envApiBaseUrl;
+      if (baseUrl.isEmpty) {
+        throw StateError(
+          'API_BASE_URL must be configured with the deployed backend URL in production.',
+        );
+      }
     }
 
     final normalizedPath =
@@ -148,6 +153,7 @@ class BackendApiClient {
     required String fileField,
     required List<int> fileBytes,
     required String fileName,
+    bool includeJsonPart = true,
   }) async {
     final token = await AuthTokenStorage.readAccessToken();
     final request = http.MultipartRequest('POST', await _uri(path))
@@ -155,13 +161,15 @@ class BackendApiClient {
     if (token != null && token.isNotEmpty) {
       request.headers['Authorization'] = 'Bearer $token';
     }
-    request.files.add(
-      http.MultipartFile.fromString(
-        'product',
-        jsonEncode(fields),
-        contentType: MediaType('application', 'json'),
-      ),
-    );
+    if (includeJsonPart) {
+      request.files.add(
+        http.MultipartFile.fromString(
+          'product',
+          jsonEncode(fields),
+          contentType: MediaType('application', 'json'),
+        ),
+      );
+    }
     request.files.add(
       http.MultipartFile.fromBytes(fileField, fileBytes, filename: fileName),
     );

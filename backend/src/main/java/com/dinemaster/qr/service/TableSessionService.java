@@ -16,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.util.UriComponentsBuilder;
 
 @Service
 public class TableSessionService {
@@ -25,7 +26,7 @@ public class TableSessionService {
     private final String menuBaseUrl;
 
     public TableSessionService(TableSessionRepository sessions, DiningTableRepository tables,
-            @Value("${dinemaster.guest.menu-base-url:/#/guest-menu}") String menuBaseUrl) {
+            @Value("${dinemaster.guest.menu-base-url:/guest-menu}") String menuBaseUrl) {
         this.sessions = sessions;
         this.tables = tables;
         this.menuBaseUrl = menuBaseUrl;
@@ -50,10 +51,24 @@ public class TableSessionService {
         session.setTokenHash(hash(token));
         session.setExpiresAt(now.plusHours(4));
         TableSession saved = sessions.saveAndFlush(session);
-        String base = menuBaseUrl.endsWith("?") || menuBaseUrl.endsWith("&")
-                ? menuBaseUrl : menuBaseUrl + (menuBaseUrl.contains("?") ? "&" : "?");
         return new QrSessionResponse(saved.getId(), tableId, table.getTableNumber(), token,
-                base + "t=" + token, saved.getExpiresAt());
+                buildMenuUrl(token), saved.getExpiresAt());
+    }
+
+    private String buildMenuUrl(String token) {
+        var builder = UriComponentsBuilder.fromUriString(menuBaseUrl);
+        String fragment = builder.build().getFragment();
+        if (fragment != null && !fragment.isBlank()) {
+            var route = UriComponentsBuilder.fromUriString(
+                    fragment.startsWith("/") ? fragment : "/" + fragment).build();
+            if (route.getPath() != null && !route.getPath().isBlank()) {
+                builder.replacePath(route.getPath());
+            }
+            if (route.getQuery() != null) {
+                builder.replaceQuery(route.getQuery());
+            }
+        }
+        return builder.fragment(null).replaceQueryParam("t", token).build().encode().toUriString();
     }
 
     @Transactional
