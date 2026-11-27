@@ -99,22 +99,112 @@ jobs:
         continue-on-error: true
 
   # =====================================================================
-  # 2. BUILD WEB APPLICATION
+  # 2. RESOLVE & AUTO-INCREMENT RELEASE VERSION
+  # =====================================================================
+  resolve-version:
+    name: Resolve & Auto-Increment Release Version
+    needs: frontend-ci
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')) || startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/frontend-v') || (github.event_name == 'workflow_dispatch' && inputs.create_release)
+    runs-on: ubuntu-latest
+    outputs:
+      version-name: ${{ steps.resolve.outputs.version-name }}
+      tag-name: ${{ steps.resolve.outputs.tag-name }}
+      release-title: ${{ steps.resolve.outputs.release-title }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve and Auto-Increment Version
+        id: resolve
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          BUMP: ${{ inputs.bump }}
+          CUSTOM_VER: ${{ inputs.custom-version }}
+        run: |
+          python - << 'EOF'
+          import os, re, subprocess
+
+          event_name = os.getenv('EVENT_NAME', '')
+          ref_name = os.getenv('REF_NAME', '')
+          bump = os.getenv('BUMP', 'patch') or 'patch'
+          custom_ver = (os.getenv('CUSTOM_VER') or '').strip()
+
+          if event_name == 'push' and (ref_name.startswith('v') or ref_name.startswith('frontend-v')):
+              raw = ref_name.replace('frontend-', '')
+              clean = raw.lstrip('v').strip()
+              tag = f"v{clean}"
+          elif custom_ver and (bump == 'custom' or not bump):
+              clean = custom_ver.lstrip('v').strip()
+              tag = f"v{clean}"
+          else:
+              subprocess.run(['git', 'fetch', '--tags', '--force'], check=False)
+              res = subprocess.run(['git', 'tag', '-l'], capture_output=True, text=True)
+              all_tags = [t.strip() for t in res.stdout.strip().split('\n') if t.strip()]
+
+              ls_res = subprocess.run(['git', 'ls-remote', '--tags', 'origin'], capture_output=True, text=True)
+              for line in ls_res.stdout.strip().split('\n'):
+                  if 'refs/tags/' in line:
+                      t = line.split('refs/tags/')[-1].strip().replace('^{}', '')
+                      if t and t not in all_tags:
+                          all_tags.append(t)
+
+              matching_v0 = []
+              for t in all_tags:
+                  clean_tag = re.sub(r'^(frontend-)?v', '', t)
+                  m = re.match(r'^0\.(\d+)\.(\d+)$', clean_tag)
+                  if m:
+                      matching_v0.append((0, int(m.group(1)), int(m.group(2))))
+
+              if not matching_v0:
+                  maj, min_, pat = 0, 0, 1
+              else:
+                  matching_v0.sort()
+                  maj, min_, pat = matching_v0[-1]
+                  if bump == 'major':
+                      maj += 1
+                      min_ = 0
+                      pat = 0
+                  elif bump == 'minor':
+                      min_ += 1
+                      pat = 0
+                  else:
+                      pat += 1
+
+              clean = f"{maj}.{min_}.{pat}"
+              tag = f"v{clean}"
+
+          title = f"Dine Master {tag}"
+          print(f"::notice::Resolved Auto-Increment Release Version: {tag} ({title})")
+
+          gh_out = os.getenv('GITHUB_OUTPUT')
+          if gh_out:
+              with open(gh_out, 'a', encoding='utf-8') as f:
+                  f.write(f"version-name={clean}\n")
+                  f.write(f"tag-name={tag}\n")
+                  f.write(f"release-title={title}\n")
+          EOF
+
+  # =====================================================================
+  # 3. BUILD WEB APPLICATION
   # =====================================================================
   build-web:
     name: Build Web Application
-    needs: frontend-ci
+    needs: [frontend-ci, resolve-version]
     uses: ./.github/workflows/build.yml
     with:
       runner: ubuntu-latest
       platform: web
       archive-name: dine-master
-      version-name: 1.0.0
+      version-name: ${{ needs.resolve-version.outputs.version-name }}
       build-number: ${{ github.run_number }}
     secrets: inherit
 
   # =====================================================================
-  # 3. DEPLOY TO VERCEL (Production)
+  # 4. DEPLOY TO VERCEL (Production)
   # =====================================================================
   deploy-vercel:
     name: Deploy Frontend to Vercel (Production)
@@ -166,99 +256,6 @@ jobs:
           echo "Deploying production web build to Vercel..."
           vercel deploy --prod --yes --token="$VERCEL_TOKEN"
           echo "Vercel production deployment completed successfully."
-
-  # =====================================================================
-  # 4. RESOLVE & AUTO-INCREMENT RELEASE VERSION
-  # =====================================================================
-  resolve-version:
-    name: Resolve & Auto-Increment Release Version
-    needs: frontend-ci
-    if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/frontend-v') || (github.event_name == 'workflow_dispatch' && inputs.create_release)
-    runs-on: ubuntu-latest
-    outputs:
-      version-name: ${{ steps.resolve.outputs.version-name }}
-      tag-name: ${{ steps.resolve.outputs.tag-name }}
-      release-title: ${{ steps.resolve.outputs.release-title }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Resolve and Auto-Increment Version
-        id: resolve
-        shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
-          BUMP: ${{ inputs.bump }}
-          CUSTOM_VER: ${{ inputs.custom-version }}
-        run: |
-          python - << 'EOF'
-          import os, re, subprocess
-
-          event_name = os.getenv('EVENT_NAME', '')
-          ref_name = os.getenv('REF_NAME', '')
-          bump = os.getenv('BUMP', 'patch') or 'patch'
-          custom_ver = (os.getenv('CUSTOM_VER') or '').strip()
-
-          if event_name == 'push' and (ref_name.startswith('v') or ref_name.startswith('frontend-v')):
-              raw = ref_name.replace('frontend-', '')
-              clean = raw.lstrip('v')
-              tag = f"v{clean}"
-          elif custom_ver and (bump == 'custom' or not bump):
-              clean = custom_ver.lstrip('v').strip()
-              tag = f"v{clean}"
-          else:
-              subprocess.run(['git', 'fetch', '--tags', '--force'], check=False)
-              res = subprocess.run(['git', 'tag', '-l', 'v*'], capture_output=True, text=True)
-              tags = [t.strip() for t in res.stdout.strip().split('\n') if t.strip()]
-
-              matching = []
-              for t in tags:
-                  if not t.startswith('v'):
-                      continue
-                  raw = t.replace('v', '')
-                  parts = raw.split('.')
-                  if len(parts) == 3 and all(p.isdigit() for p in parts):
-                      matching.append(tuple(map(int, parts)))
-
-              v0_matching = [m for m in matching if m[0] == 0]
-              if v0_matching:
-                  target_pool = v0_matching
-              elif not any(m[0] == 0 for m in matching):
-                  target_pool = []
-              else:
-                  target_pool = matching
-
-              if not target_pool:
-                  maj, min_, pat = 0, 0, 1
-              else:
-                  target_pool.sort()
-                  maj, min_, pat = target_pool[-1]
-                  if bump == 'major':
-                      maj += 1
-                      min_ = 0
-                      pat = 0
-                  elif bump == 'minor':
-                      min_ += 1
-                      pat = 0
-                  else:
-                      pat += 1
-
-              clean = f"{maj}.{min_}.{pat}"
-              tag = f"v{clean}"
-
-          title = f"Dine Master {tag}"
-          print(f"::notice::Auto-incremented Frontend Version: {tag} ({title})")
-
-          gh_out = os.getenv('GITHUB_OUTPUT')
-          if gh_out:
-              with open(gh_out, 'a', encoding='utf-8') as f:
-                  f.write(f"version-name={clean}\n")
-                  f.write(f"tag-name={tag}\n")
-                  f.write(f"release-title={title}\n")
-          EOF
 
   # =====================================================================
   # 5. MULTI-PLATFORM BUILDS (Windows, macOS, Linux, Android, iOS)
@@ -355,6 +352,17 @@ jobs:
           echo "=== Release Artifacts to be published ==="
           find release-artifacts -type f -exec ls -lh {} +
 
+      - name: Push release tag to Git repository
+        shell: bash
+        env:
+          TAG_NAME: ${{ needs.resolve-version.outputs.tag-name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f "$TAG_NAME"
+          git push origin "$TAG_NAME" --force || true
+
       - name: Publish GitHub Release (Empty Description, No Release Notes)
         uses: softprops/action-gh-release@v2
         with:
@@ -364,6 +372,7 @@ jobs:
           body: ""
           generate_release_notes: false
           files: release-artifacts/*
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -392,3 +401,4 @@ jobs:
           body: ""
           generate_release_notes: false
           files: release-artifacts/*
+          fail_on_unmatched_files: false

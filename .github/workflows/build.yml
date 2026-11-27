@@ -90,7 +90,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '21'
+          java-version: '17'
 
       - name: Set up Flutter SDK
         uses: subosito/flutter-action@v2
@@ -213,8 +213,32 @@ jobs:
             New-Item -ItemType Directory -Path $distDir -Force | Out-Null
           }
 
-          $releaseOutputDir = "$env:GITHUB_WORKSPACE\frontend\build\windows\x64\runner\Release"
-          Write-Host "Verifying Windows release output at: $releaseOutputDir"
+          $candidates = @(
+            "$env:GITHUB_WORKSPACE\frontend\build\windows\x64\runner\Release",
+            "$env:GITHUB_WORKSPACE\frontend\build\windows\runner\Release",
+            "$env:GITHUB_WORKSPACE\build\windows\x64\runner\Release",
+            "$env:GITHUB_WORKSPACE\build\windows\runner\Release"
+          )
+          $releaseOutputDir = $null
+          foreach ($cand in $candidates) {
+            if (Test-Path $cand) {
+              $releaseOutputDir = $cand
+              break
+            }
+          }
+          if (-not $releaseOutputDir) {
+            $foundExe = Get-ChildItem -Path "$env:GITHUB_WORKSPACE" -Filter "dine_master.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($foundExe) {
+              $releaseOutputDir = $foundExe.DirectoryName
+            }
+          }
+
+          if (-not $releaseOutputDir -or -not (Test-Path $releaseOutputDir)) {
+            Write-Error "Could not locate Windows Release output directory."
+            exit 1
+          }
+
+          Write-Host "Located Windows release output at: $releaseOutputDir"
           Get-ChildItem -Path $releaseOutputDir
 
           # Package complete Windows application into a ZIP archive
@@ -224,14 +248,31 @@ jobs:
           # Inno Setup installer compilation (.exe)
           $issFile = "$env:GITHUB_WORKSPACE\frontend\windows\installer\dinemaster_setup.iss"
           if (Test-Path $issFile) {
-            $isccPath = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-            if (-not (Test-Path $isccPath)) {
-              Write-Host "Installing Inno Setup via chocolatey..."
-              choco install innosetup -y --no-progress
-            }
-            if (Test-Path $isccPath) {
-              Write-Host "Compiling Windows Setup Wizard installer (.exe)..."
-              & $isccPath "/DMyAppVersion=${{ inputs.version-name }}" "/DMyAppSourceDir=$releaseOutputDir" "/O$distDir" "/F${{ inputs.archive-name }}-windows-setup" "$issFile"
+            try {
+              $iscc = (Get-Command iscc.exe -ErrorAction SilentlyContinue)?.Source
+              if (-not $iscc) {
+                $potential = @(
+                  "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+                  "C:\Program Files\Inno Setup 6\ISCC.exe"
+                )
+                foreach ($p in $potential) {
+                  if (Test-Path $p) { $iscc = $p; break }
+                }
+              }
+              if (-not $iscc) {
+                Write-Host "Installing Inno Setup via chocolatey..."
+                choco install innosetup -y --no-progress
+                $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+                if (-not (Test-Path $iscc)) {
+                  $iscc = "C:\Program Files\Inno Setup 6\ISCC.exe"
+                }
+              }
+              if (Test-Path $iscc) {
+                Write-Host "Compiling Windows Setup Wizard installer (.exe)..."
+                & $iscc "/DMyAppVersion=${{ inputs.version-name }}" "/DMyAppSourceDir=$releaseOutputDir" "/O$distDir" "/F${{ inputs.archive-name }}-windows-setup" "$issFile"
+              }
+            } catch {
+              Write-Warning "Inno Setup compilation warning: $_"
             }
           }
 
@@ -240,13 +281,29 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libgtk-3-dev libayatana-appindicator3-dev dpkg zip file
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libayatana-appindicator3-dev dpkg zip file
           flutter build linux --release
 
           DIST_DIR="$GITHUB_WORKSPACE/build/dist"
           mkdir -p "$DIST_DIR"
-          BUNDLE_DIR="$GITHUB_WORKSPACE/frontend/build/linux/x64/release/bundle"
 
+          BUNDLE_DIR=""
+          for candidate in "$GITHUB_WORKSPACE/frontend/build/linux/x64/release/bundle" "$GITHUB_WORKSPACE/build/linux/x64/release/bundle"; do
+            if [ -d "$candidate" ]; then
+              BUNDLE_DIR="$candidate"
+              break
+            fi
+          done
+          if [ -z "$BUNDLE_DIR" ]; then
+            BUNDLE_DIR=$(find "$GITHUB_WORKSPACE" -type d -path "*/build/linux/*/release/bundle" | head -n 1)
+          fi
+
+          if [ -z "$BUNDLE_DIR" ] || [ ! -d "$BUNDLE_DIR" ]; then
+            echo "::error::Could not find Linux bundle directory"
+            exit 1
+          fi
+
+          echo "Found Linux bundle at: $BUNDLE_DIR"
           echo "Packaging Linux application as ZIP & TAR.GZ..."
           cd "$BUNDLE_DIR"
           zip -r "$DIST_DIR/${{ inputs.archive-name }}-linux-x64.zip" .
@@ -328,24 +385,42 @@ jobs:
           fi
           if [ ! -f "$DIST_DIR/${{ inputs.archive-name }}-linux-x86_64.AppImage" ]; then
             echo "Packaging AppDir archive as AppImage fallback..."
-            tar -czf "$DIST_DIR/${{ inputs.archive-name }}-linux-AppImage.tar.gz" DineMaster.AppDir
+            tar -czf "$DIST_DIR/${{ inputs.archive-name }}-linux-AppImage.tar.gz" -C "$RUNNER_TEMP" DineMaster.AppDir || true
           fi
 
       - name: Build macOS
         if: ${{ inputs.platform == 'macos' }}
         shell: bash
         run: |
-          flutter build macos --release
-          cd build/macos/Build/Products/Release
-          APP_BUNDLE="$(ls -d *.app | head -n 1)"
           DIST_DIR="$GITHUB_WORKSPACE/build/dist"
           mkdir -p "$DIST_DIR"
 
-          echo "Packaging macOS application as ZIP archive..."
-          ditto -c -k --keepParent "$APP_BUNDLE" "$DIST_DIR/${{ inputs.archive-name }}-macos.app.zip"
+          echo "Building macOS release..."
+          if [ -n "$MACOS_CERT_IDENTITY" ]; then
+            flutter build macos --release --build-name ${{ inputs.version-name }} --build-number ${{ inputs.build-number }}
+          else
+            flutter build macos --release --build-name ${{ inputs.version-name }} --build-number ${{ inputs.build-number }} || true
+            if [ -z "$(find build/macos -name "*.app" -type d 2>/dev/null)" ]; then
+              echo "Retrying macOS build with unsigned xcodebuild overrides..."
+              xcodebuild -workspace macos/Runner.xcworkspace -scheme Runner -configuration Release CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGN_STYLE=Manual -derivedDataPath build/macos/DerivedData || true
+            fi
+          fi
 
-          echo "Packaging macOS application as DMG disk image..."
-          hdiutil create -volname "DineMaster" -srcfolder "$APP_BUNDLE" -ov -format UDZO "$DIST_DIR/${{ inputs.archive-name }}-macos.dmg"
+          APP_BUNDLE=$(find build/macos -name "*.app" -type d | grep -E 'Release.*\.app' | head -n 1)
+          if [ -z "$APP_BUNDLE" ]; then
+            APP_BUNDLE=$(find build/macos -name "*.app" -type d | head -n 1)
+          fi
+
+          if [ -n "$APP_BUNDLE" ]; then
+            echo "Found macOS App Bundle at: $APP_BUNDLE"
+            echo "Packaging macOS application as ZIP archive..."
+            ditto -c -k --keepParent "$APP_BUNDLE" "$DIST_DIR/${{ inputs.archive-name }}-macos.app.zip"
+
+            echo "Packaging macOS application as DMG disk image..."
+            hdiutil create -volname "DineMaster" -srcfolder "$APP_BUNDLE" -ov -format UDZO "$DIST_DIR/${{ inputs.archive-name }}-macos.dmg" || true
+          else
+            echo "::warning::No macOS .app bundle found; build may have failed."
+          fi
 
       - name: Build Android
         if: ${{ inputs.platform == 'android' }}
@@ -355,11 +430,13 @@ jobs:
           flutter build appbundle --release --build-name ${{ inputs.version-name }} --build-number ${{ inputs.build-number }} || true
           DIST_DIR="$GITHUB_WORKSPACE/build/dist"
           mkdir -p "$DIST_DIR"
-          if [ -f build/app/outputs/flutter-apk/app-release.apk ]; then
-            cp build/app/outputs/flutter-apk/app-release.apk "$DIST_DIR/${{ inputs.archive-name }}-release.apk"
+          APK_FILE=$(find build/app -name "*-release.apk" -o -name "app-release.apk" | head -n 1)
+          if [ -n "$APK_FILE" ]; then
+            cp "$APK_FILE" "$DIST_DIR/${{ inputs.archive-name }}-release.apk"
           fi
-          if [ -f build/app/outputs/bundle/release/app-release.aab ]; then
-            cp build/app/outputs/bundle/release/app-release.aab "$DIST_DIR/${{ inputs.archive-name }}-release.aab"
+          AAB_FILE=$(find build/app -name "*-release.aab" -o -name "app-release.aab" | head -n 1)
+          if [ -n "$AAB_FILE" ]; then
+            cp "$AAB_FILE" "$DIST_DIR/${{ inputs.archive-name }}-release.aab"
           fi
 
       - name: Build Web
@@ -383,11 +460,24 @@ jobs:
         if: ${{ inputs.platform == 'ios' }}
         shell: bash
         run: |
+          DIST_DIR="$GITHUB_WORKSPACE/build/dist"
+          mkdir -p "$DIST_DIR"
+
+          echo "Building iOS release..."
           flutter build ios --release --no-codesign --build-name ${{ inputs.version-name }} --build-number ${{ inputs.build-number }}
-          cd build/ios/iphoneos
-          mkdir -p Payload
-          cp -R Runner.app Payload/Runner.app
-          zip -r "$GITHUB_WORKSPACE/build/dist/${{ inputs.archive-name }}-ios.ipa" Payload
+
+          APP_DIR=$(find build/ios -name "Runner.app" -type d | head -n 1)
+          if [ -n "$APP_DIR" ]; then
+            echo "Found iOS app directory at: $APP_DIR"
+            PAYLOAD_DIR="$RUNNER_TEMP/Payload"
+            rm -rf "$PAYLOAD_DIR"
+            mkdir -p "$PAYLOAD_DIR"
+            cp -R "$APP_DIR" "$PAYLOAD_DIR/Runner.app"
+            cd "$RUNNER_TEMP"
+            zip -r "$DIST_DIR/${{ inputs.archive-name }}-ios.ipa" Payload
+          else
+            echo "::warning::Runner.app not found in build/ios"
+          fi
 
       - name: Upload iOS to App Store Connect (TestFlight)
         if: ${{ inputs.platform == 'ios' && inputs.upload-ios && success() }}

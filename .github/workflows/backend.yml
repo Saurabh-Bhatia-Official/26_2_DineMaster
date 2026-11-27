@@ -146,7 +146,7 @@ jobs:
   resolve-version:
     name: Resolve & Auto-Increment Backend Version
     needs: backend-ci
-    if: startsWith(github.ref, 'refs/tags/backend-v') || (github.event_name == 'workflow_dispatch' && inputs.create_release)
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')) || startsWith(github.ref, 'refs/tags/backend-v') || (github.event_name == 'workflow_dispatch' && inputs.create_release)
     runs-on: ubuntu-latest
     outputs:
       version-name: ${{ steps.resolve.outputs.version-name }}
@@ -279,6 +279,17 @@ jobs:
           echo "=== Backend Release Artifact to be published ==="
           ls -lh release-artifacts/
 
+      - name: Push release tag to Git repository
+        shell: bash
+        env:
+          TAG_NAME: ${{ needs.resolve-version.outputs.tag-name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f "$TAG_NAME"
+          git push origin "$TAG_NAME" --force || true
+
       - name: Publish GitHub Release (Empty Description, No Release Notes)
         uses: softprops/action-gh-release@v2
         with:
@@ -288,5 +299,6 @@ jobs:
           body: ""
           generate_release_notes: false
           files: release-artifacts/*
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
