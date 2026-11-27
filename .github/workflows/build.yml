@@ -109,6 +109,10 @@ jobs:
       - name: Pub get
         run: flutter pub get
 
+      - name: Prepare frontend environment
+        shell: bash
+        run: cp .env.example .env
+
       - name: Prepare dist directory
         shell: bash
         run: mkdir -p "$GITHUB_WORKSPACE/build/dist"
@@ -247,8 +251,15 @@ jobs:
       - name: Build Web
         if: ${{ inputs.platform == 'web' }}
         shell: bash
+        env:
+          API_BASE_URL: ${{ vars.API_BASE_URL }}
         run: |
-          flutter build web --release --dart-define=API_BASE_URL=https://two6-2-dinemaster.onrender.com --dart-define=APP_ENV=production
+          if [ -z "$API_BASE_URL" ]; then
+            echo "::error::Set the repository variable API_BASE_URL to the deployed backend URL."
+            exit 1
+          fi
+          printf 'API_BASE_URL=%s\nAPP_ENV=production\n' "$API_BASE_URL" > .env
+          flutter build web --release
           cp web/vercel.json build/web/vercel.json 2>/dev/null || true
           cd build/web
           tar -czf "$GITHUB_WORKSPACE/build/dist/${{ inputs.archive-name }}-web.tar.gz" .

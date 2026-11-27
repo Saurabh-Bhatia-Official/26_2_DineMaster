@@ -109,7 +109,7 @@ public class RoleController {
                     .or(() -> roles.findByCodeAndTenantIdIsNullAndActiveTrue(code)).orElse(null);
         } else {
             role = roles.findByCodeAndTenantIdAndActiveTrue(code, actor.getTenantId()).orElse(null);
-            if (role == null && isTrustedRoleAdministrator(actor) && "MANAGER".equals(code)) {
+            if (role == null && isTrustedRoleAdministrator(actor)) {
                 Role defaults = roles.findByCodeAndTenantIdIsNullAndActiveTrue(code).orElse(null);
                 if (defaults != null) {
                     role = new Role(defaults.getCode(), defaults.getName(), actor.getTenantId());

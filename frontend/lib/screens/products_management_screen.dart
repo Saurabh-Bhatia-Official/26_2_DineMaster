@@ -384,7 +384,7 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
                                 ),
                               ),
                               const SizedBox(height: 12),
-                              if (!isEditing) OutlinedButton.icon(
+                              OutlinedButton.icon(
                                 onPressed: () async {
                                   final result = await fp.FilePicker.pickFiles(
                                     type: fp.FileType.image,
@@ -398,8 +398,42 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
                                   }
                                 },
                                 icon: const Icon(Icons.add_photo_alternate_outlined),
-                                label: Text(selectedImage?.name ?? 'Choose menu image'),
+                                label: Text(
+                                  selectedImage?.name ??
+                                      (existingProduct?.imagePath == null
+                                          ? 'Choose menu image'
+                                          : 'Change menu image'),
+                                ),
                               ),
+                              if (selectedImage?.bytes != null ||
+                                  (selectedImage == null &&
+                                      existingProduct?.imagePath?.trim().startsWith('http') == true)) ...[
+                                const SizedBox(height: 8),
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: selectedImage?.bytes != null
+                                        ? Image.memory(
+                                            selectedImage!.bytes!,
+                                            width: 88,
+                                            height: 72,
+                                            fit: BoxFit.cover,
+                                          )
+                                        : Image.network(
+                                            existingProduct!.imagePath!.trim(),
+                                            width: 88,
+                                            height: 72,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (_, __, ___) => const SizedBox(
+                                              width: 88,
+                                              height: 72,
+                                              child: Icon(Icons.broken_image_outlined),
+                                            ),
+                                          ),
+                                  ),
+                                ),
+                              ],
                               const SizedBox(height: 12),
                               Row(
                                 children: [
@@ -916,6 +950,16 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
                                 '/api/v1/products/${existingProduct.id}',
                                 apiData,
                               );
+                              if (selectedImage != null) {
+                                await api.postMultipartJson(
+                                  '/api/v1/products/${existingProduct.id}/image',
+                                  const {},
+                                  fileField: 'image',
+                                  fileBytes: selectedImage!.bytes!,
+                                  fileName: selectedImage!.name,
+                                  includeJsonPart: false,
+                                );
+                              }
                             } else {
                               if (selectedImage == null) {
                                 await api.postJson('/api/v1/products', apiData);
@@ -938,6 +982,8 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
                               'category': category,
                               'is_veg': productType,
                               'is_available': isAvailable ? 1 : 0,
+                              if (selectedImage?.path != null)
+                                'image_path': selectedImage!.path,
                               'restaurant_id': DatabaseHelper.currentRestaurantId,
                               'recipe_steps': localSteps.join('\n'),
                               'prep_time': int.tryParse(prepTimeController.text.trim()) ?? 5,
@@ -1174,29 +1220,40 @@ class _ProductsManagementScreenState extends State<ProductsManagementScreen> {
                       icon: const Icon(Icons.add_circle, color: AppColors.primary),
                       onPressed: () async {
                         final name = catController.text.trim();
-                        if (name.isNotEmpty) {
-                          try {
-                            if (await ApiMode.useBackendApi()) {
-                              await const BackendApiClient().postJson(
-                                '/api/v1/categories',
-                                {'name': name},
-                              );
-                            } else {
-                              final db = await DatabaseHelper.instance.database;
-                              await db.insert('categories', {
-                                'name': name,
-                                'restaurant_id': DatabaseHelper.currentRestaurantId,
-                              });
-                            }
-                            catController.clear();
-                            _loadCategories();
-                            Navigator.pop(context);
-                          } catch (e) {
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Could not add category: $e')),
-                              );
-                            }
+                        if (name.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Enter a category name first'),
+                            ),
+                          );
+                          return;
+                        }
+                        try {
+                          if (await ApiMode.useBackendApi()) {
+                            await const BackendApiClient().postJson(
+                              '/api/v1/categories',
+                              {'name': name},
+                            );
+                          } else {
+                            final db = await DatabaseHelper.instance.database;
+                            await db.insert('categories', {
+                              'name': name,
+                              'restaurant_id': DatabaseHelper.currentRestaurantId,
+                            });
+                          }
+                          catController.clear();
+                          await _loadCategories();
+                          if (context.mounted) {
+                            setCatState(() {});
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Category "$name" added')),
+                            );
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Could not add category: $e')),
+                            );
                           }
                         }
                       },

@@ -99,11 +99,34 @@ class _GuestMenuScreenState extends State<GuestMenuScreen> {
     final description = item['description']?.toString();
     final category = item['category']?.toString();
     final price = (item['price'] as num?)?.toDouble() ?? 0;
+    final imagePath = (item['imagePath'] ??
+            item['image_path'] ??
+            item['imageUrl'] ??
+            item['image_url'])
+        ?.toString()
+        .trim();
     return Card(
       color: Colors.white,
       margin: const EdgeInsets.only(bottom: 12),
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        contentPadding: const EdgeInsets.all(12),
+        leading: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: SizedBox(
+            width: 82,
+            height: 82,
+            child: imagePath != null &&
+                    (imagePath.startsWith('https://') ||
+                        imagePath.startsWith('http://'))
+                ? Image.network(
+                    imagePath,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) =>
+                        _imagePlaceholder(),
+                  )
+                : _imagePlaceholder(),
+          ),
+        ),
         title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -120,6 +143,18 @@ class _GuestMenuScreenState extends State<GuestMenuScreen> {
           '₹${price.toStringAsFixed(2)}',
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
+      ),
+    );
+  }
+
+  Widget _imagePlaceholder() {
+    return Container(
+      color: const Color(0xFFFFF3EC),
+      alignment: Alignment.center,
+      child: const Icon(
+        Icons.restaurant_menu,
+        size: 32,
+        color: Color(0xFFE96B2C),
       ),
     );
   }

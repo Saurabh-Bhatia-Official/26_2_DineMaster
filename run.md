@@ -60,8 +60,8 @@ Copy the example environment file if you haven't already:
 *(Note: If `.env` already exists in `backend/`, you can skip this step.)*
 Key configuration properties (`backend/.env`):
 - `SERVER_PORT=8081`
-- `DB_HOST=localhost`, `DB_PORT=5432`, `DB_NAME=dinemaster`
-- `DB_USER=postgres`, `DB_PASSWORD=postgres`
+- `DB_HOST`, `DB_PORT`, and `DB_NAME` from `backend/.env` (Neon uses `sslmode=require`)
+- `DB_USERNAME` and `DB_PASSWORD` from `backend/.env`
 - `JWT_SECRET=your_jwt_secret_key`
 
 ---

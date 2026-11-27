@@ -888,13 +888,13 @@ class SettingsScreen extends StatelessWidget {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text(
-                              'Localhost URLs are not allowed in production. Using Render production backend.',
+                              'Localhost URLs are not allowed in production. Using API_BASE_URL from the environment.',
                             ),
                             backgroundColor: Colors.orange,
                           ),
                         );
                       }
-                      enteredUrl = ApiConfig.productionBackendUrl;
+                      enteredUrl = ApiConfig.envApiBaseUrl;
                     }
                     await prefs.setString(
                       'backend_api_url',
